@@ -20,6 +20,10 @@ pub async fn generate_fixtures() {
         .await
         .expect("Failed to generate billing and features json");
 
+    generate_daemon_config_docs_json()
+        .await
+        .expect("Failed to generate daemon config docs json");
+
     // OpenAPI generation - public spec only (excludes internal endpoints)
     let openapi_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -159,5 +163,27 @@ async fn generate_billing_plans_json() -> Result<(), Box<dyn std::error::Error>>
     tokio::fs::write(path, json_string).await?;
 
     println!("✅ Generated billing-plans-next.json and features-next.json");
+    Ok(())
+}
+
+async fn generate_daemon_config_docs_json() -> Result<(), Box<dyn std::error::Error>> {
+    // Run the TypeScript export script with 'docs' argument
+    let output = std::process::Command::new("npx")
+        .args(["vite-node", "scripts/export-daemon-field-defs.ts", "docs"])
+        .current_dir("../ui")
+        .output()?;
+
+    if !output.status.success() {
+        return Err(format!(
+            "Failed to run export-daemon-field-defs.ts: {}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+
+    let json_path = std::path::Path::new("../ui/static/daemon-config-docs.json");
+    std::fs::write(json_path, output.stdout)?;
+
+    println!("✅ Generated daemon-config-docs.json");
     Ok(())
 }

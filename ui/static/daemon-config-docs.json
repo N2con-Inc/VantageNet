@@ -1,0 +1,162 @@
+[
+  {
+    "id": "server_url",
+    "label": "Server URL",
+    "cliFlag": "--server-url",
+    "envVar": "SCANOPY_SERVER_URL",
+    "configFileKey": "server_url",
+    "default": "http://127.0.0.1:60072",
+    "description": "URL where the daemon can reach the server",
+    "docsOnly": true
+  },
+  {
+    "id": "daemon_api_key",
+    "label": "API Key",
+    "cliFlag": "--daemon-api-key",
+    "envVar": "SCANOPY_DAEMON_API_KEY",
+    "configFileKey": "daemon_api_key",
+    "default": "_Required_",
+    "description": "Authentication key for daemon (generated via UI)",
+    "docsOnly": true
+  },
+  {
+    "id": "network_id",
+    "label": "Network ID",
+    "cliFlag": "--network-id",
+    "envVar": "SCANOPY_NETWORK_ID",
+    "configFileKey": "network_id",
+    "default": null,
+    "description": "UUID of the network to scan",
+    "docsOnly": true
+  },
+  {
+    "id": "name",
+    "label": "Daemon Name",
+    "cliFlag": "--name",
+    "envVar": "SCANOPY_NAME",
+    "configFileKey": "name",
+    "default": "scanopy-daemon",
+    "description": "Name for this daemon",
+    "docsOnly": false
+  },
+  {
+    "id": "mode",
+    "label": "Daemon Mode",
+    "cliFlag": "--mode",
+    "envVar": "SCANOPY_MODE",
+    "configFileKey": "mode",
+    "default": "Push",
+    "description": "Select whether the daemon will Pull work from the server or have work Pushed to it. If set to Push, you will need to ensure that network you are deploying the daemon on can be reached by the server by opening/forwarding the port to the daemon. If set to Pull, no port opening/forwarding is needed",
+    "docsOnly": false
+  },
+  {
+    "id": "daemon_port",
+    "label": "Port",
+    "cliFlag": "--daemon-port",
+    "envVar": "SCANOPY_DAEMON_PORT",
+    "configFileKey": "daemon_port",
+    "default": "60073",
+    "description": "Port for daemon to listen on",
+    "docsOnly": false
+  },
+  {
+    "id": "bind_address",
+    "label": "Bind Address",
+    "cliFlag": "--bind-address",
+    "envVar": "SCANOPY_BIND_ADDRESS",
+    "configFileKey": "bind_address",
+    "default": "0.0.0.0",
+    "description": "IP address to bind daemon to",
+    "docsOnly": false
+  },
+  {
+    "id": "daemon_url",
+    "label": "Daemon URL",
+    "cliFlag": "--daemon-url",
+    "envVar": "SCANOPY_DAEMON_URL",
+    "configFileKey": "daemon_url",
+    "default": null,
+    "description": "Public URL where server can reach daemon, if running in Push mode. Defaults to auto-detected IP + Daemon Port if not set",
+    "docsOnly": false
+  },
+  {
+    "id": "allow_self_signed_certs",
+    "label": "Allow Self-Signed Certificates",
+    "cliFlag": "--allow-self-signed-certs",
+    "envVar": "SCANOPY_ALLOW_SELF_SIGNED_CERTS",
+    "configFileKey": "allow_self_signed_certs",
+    "default": "false",
+    "description": "Allow self-signed certs for daemon -> server connections",
+    "docsOnly": false
+  },
+  {
+    "id": "log_level",
+    "label": "Log Level",
+    "cliFlag": "--log-level",
+    "envVar": "SCANOPY_LOG_LEVEL",
+    "configFileKey": "log_level",
+    "default": "info",
+    "description": "Logging verbosity",
+    "docsOnly": false
+  },
+  {
+    "id": "heartbeat_interval",
+    "label": "Heartbeat Interval",
+    "cliFlag": "--heartbeat-interval",
+    "envVar": "SCANOPY_HEARTBEAT_INTERVAL",
+    "configFileKey": "heartbeat_interval",
+    "default": "30",
+    "description": "Seconds between heartbeat updates / work requests (for daemons in pull mode) to server",
+    "docsOnly": false
+  },
+  {
+    "id": "concurrent_scans",
+    "label": "Concurrent Scans",
+    "cliFlag": "--concurrent-scans",
+    "envVar": "SCANOPY_CONCURRENT_SCANS",
+    "configFileKey": "concurrent_scans",
+    "default": "Auto",
+    "description": "Maximum parallel host scans",
+    "docsOnly": false
+  },
+  {
+    "id": "docker_proxy",
+    "label": "Docker Proxy",
+    "cliFlag": "--docker-proxy",
+    "envVar": "SCANOPY_DOCKER_PROXY",
+    "configFileKey": "docker_proxy",
+    "default": null,
+    "description": "Optional proxy for Docker API. Can use both non-SSL and SSL proxy; SSL proxy requires additional SSL config vars",
+    "docsOnly": false
+  },
+  {
+    "id": "docker_proxy_ssl_cert",
+    "label": "Docker Proxy SSL Cert",
+    "cliFlag": "--docker-proxy-ssl-cert",
+    "envVar": "SCANOPY_DOCKER_PROXY_SSL_CERT",
+    "configFileKey": "docker_proxy_ssl_cert",
+    "default": null,
+    "description": "Path to SSL certificate if using a docker proxy with SSL",
+    "docsOnly": false
+  },
+  {
+    "id": "docker_proxy_ssl_key",
+    "label": "Docker Proxy SSL Key",
+    "cliFlag": "--docker-proxy-ssl-key",
+    "envVar": "SCANOPY_DOCKER_PROXY_SSL_KEY",
+    "configFileKey": "docker_proxy_ssl_key",
+    "default": null,
+    "description": "Path to SSL private key if using a docker proxy with SSL",
+    "docsOnly": false
+  },
+  {
+    "id": "docker_proxy_ssl_chain",
+    "label": "Docker Proxy SSL Chain",
+    "cliFlag": "--docker-proxy-ssl-chain",
+    "envVar": "SCANOPY_DOCKER_PROXY_SSL_CHAIN",
+    "configFileKey": "docker_proxy_ssl_chain",
+    "default": null,
+    "description": "Path to SSL chain if using a docker proxy with SSL",
+    "docsOnly": false
+  }
+]
