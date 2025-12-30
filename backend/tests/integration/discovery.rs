@@ -1,14 +1,14 @@
 //! Discovery and integration flow tests.
 
 use crate::infra::{BASE_URL, TestClient, retry};
-use scanopy::server::daemons::r#impl::api::DiscoveryUpdatePayload;
-use scanopy::server::discovery::r#impl::types::DiscoveryType;
-use scanopy::server::groups::r#impl::base::{Group, GroupBase};
-use scanopy::server::services::definitions::home_assistant::HomeAssistant;
-use scanopy::server::services::r#impl::base::Service;
-use scanopy::server::shared::storage::traits::StorableEntity;
-use scanopy::server::shared::types::metadata::HasId;
-use scanopy::server::tags::r#impl::base::{Tag, TagBase};
+use vantagenet::server::daemons::r#impl::api::DiscoveryUpdatePayload;
+use vantagenet::server::discovery::r#impl::types::DiscoveryType;
+use vantagenet::server::groups::r#impl::base::{Group, GroupBase};
+use vantagenet::server::services::definitions::home_assistant::HomeAssistant;
+use vantagenet::server::services::r#impl::base::Service;
+use vantagenet::server::shared::storage::traits::StorableEntity;
+use vantagenet::server::shared::types::metadata::HasId;
+use vantagenet::server::tags::r#impl::base::{Tag, TagBase};
 use uuid::Uuid;
 
 pub async fn run_discovery(client: &TestClient) -> Result<(), String> {

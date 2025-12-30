@@ -1,6 +1,6 @@
 use axum::{Router, http::Method};
 use clap::Parser;
-use scanopy::{
+use vantagenet::{
     daemon::{
         runtime::types::DaemonAppState,
         shared::{
@@ -36,13 +36,13 @@ async fn async_main() -> anyhow::Result<()> {
     // Initialize tracing
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(format!(
-            "scanopy={},daemon={}",
+            "vantagenet={},daemon={}",
             config.log_level, config.log_level
         )))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    tracing::info!("🤖 Scanopy Daemon v{}", env!("CARGO_PKG_VERSION"));
+    tracing::info!("🤖 VantageNet Daemon v{}", env!("CARGO_PKG_VERSION"));
 
     let (_, path) = AppConfig::get_config_path()?;
     let path_str = path

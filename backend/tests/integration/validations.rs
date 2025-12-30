@@ -2,14 +2,14 @@
 
 use crate::infra::{BASE_URL, TestContext};
 use reqwest::StatusCode;
-use scanopy::server::daemons::r#impl::base::Daemon;
-use scanopy::server::hosts::r#impl::api::{CreateHostRequest, HostResponse};
-use scanopy::server::networks::r#impl::{Network, NetworkBase};
-use scanopy::server::services::definitions::ServiceDefinitionRegistry;
-use scanopy::server::services::r#impl::base::{Service, ServiceBase};
-use scanopy::server::shared::storage::traits::StorableEntity;
-use scanopy::server::shared::types::entities::EntitySource;
-use scanopy::server::tags::r#impl::base::{Tag, TagBase};
+use vantagenet::server::daemons::r#impl::base::Daemon;
+use vantagenet::server::hosts::r#impl::api::{CreateHostRequest, HostResponse};
+use vantagenet::server::networks::r#impl::{Network, NetworkBase};
+use vantagenet::server::services::definitions::ServiceDefinitionRegistry;
+use vantagenet::server::services::r#impl::base::{Service, ServiceBase};
+use vantagenet::server::shared::storage::traits::StorableEntity;
+use vantagenet::server::shared::types::entities::EntitySource;
+use vantagenet::server::tags::r#impl::base::{Tag, TagBase};
 
 pub async fn run_validation_tests(ctx: &TestContext) -> Result<(), String> {
     println!("\n=== Testing Handler Validations ===\n");

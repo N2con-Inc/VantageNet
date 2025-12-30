@@ -5,13 +5,13 @@
 use crate::infra::{TestContext, exec_sql};
 use cidr::{IpCidr, Ipv4Cidr};
 use reqwest::StatusCode;
-use scanopy::server::hosts::r#impl::api::CreateHostRequest;
-use scanopy::server::hosts::r#impl::base::{Host, HostBase};
-use scanopy::server::networks::r#impl::{Network, NetworkBase};
-use scanopy::server::shared::storage::traits::StorableEntity;
-use scanopy::server::shared::types::entities::EntitySource;
-use scanopy::server::subnets::r#impl::base::{Subnet, SubnetBase};
-use scanopy::server::subnets::r#impl::types::SubnetType;
+use vantagenet::server::hosts::r#impl::api::CreateHostRequest;
+use vantagenet::server::hosts::r#impl::base::{Host, HostBase};
+use vantagenet::server::networks::r#impl::{Network, NetworkBase};
+use vantagenet::server::shared::storage::traits::StorableEntity;
+use vantagenet::server::shared::types::entities::EntitySource;
+use vantagenet::server::subnets::r#impl::base::{Subnet, SubnetBase};
+use vantagenet::server::subnets::r#impl::types::SubnetType;
 use std::net::Ipv4Addr;
 use uuid::Uuid;
 

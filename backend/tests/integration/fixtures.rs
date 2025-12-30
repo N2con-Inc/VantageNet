@@ -1,6 +1,6 @@
-use scanopy::server::services::definitions::ServiceDefinitionRegistry;
-use scanopy::server::services::r#impl::definitions::{ServiceDefinition, ServiceDefinitionExt};
-use scanopy::server::shared::types::metadata::EntityMetadataProvider;
+use vantagenet::server::services::definitions::ServiceDefinitionRegistry;
+use vantagenet::server::services::r#impl::definitions::{ServiceDefinition, ServiceDefinitionExt};
+use vantagenet::server::shared::types::metadata::EntityMetadataProvider;
 
 /// Generate all fixtures (requires Docker containers to be running, except OpenAPI)
 pub async fn generate_fixtures() {
@@ -141,9 +141,9 @@ async fn generate_services_json() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn generate_billing_plans_json() -> Result<(), Box<dyn std::error::Error>> {
-    use scanopy::server::billing::plans::get_website_fixture_plans;
-    use scanopy::server::billing::types::features::Feature;
-    use scanopy::server::shared::types::metadata::{MetadataProvider, TypeMetadata};
+    use vantagenet::server::billing::plans::get_website_fixture_plans;
+    use vantagenet::server::billing::types::features::Feature;
+    use vantagenet::server::shared::types::metadata::{MetadataProvider, TypeMetadata};
     use strum::IntoEnumIterator;
 
     let plans = get_website_fixture_plans();

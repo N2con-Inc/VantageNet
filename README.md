@@ -1,28 +1,10 @@
-# Scanopy
+# VantageNet
 
-<p align="left">
-  <img src="./media/logo.png" width="100" alt="Scanopy Logo">
-</p>
+**MSP-focused network discovery and monitoring platform.**
 
-**Clean network diagrams. One-time setup, zero upkeep.**
+VantageNet is a fork of [Scanopy](https://github.com/scanopy/scanopy), extended with enterprise MSP features including multi-tenant client management, certificate monitoring, VPN detection, change alerting, and AI-assisted service identification.
 
-Scanopy scans your network, identifies hosts and services, and generates an interactive visualization showing how everything connects, letting you easily create and maintain network documentation.
-
-![Docker Pulls](https://img.shields.io/docker/pulls/mayanayza/netvisor-server?style=for-the-badge&logo=docker)  ![Github Stars](https://img.shields.io/github/stars/scanopy/scanopy?style=for-the-badge&logo=github
-)<br>
-![GitHub release](https://img.shields.io/github/v/release/scanopy/scanopy?style=for-the-badge) ![License](https://img.shields.io/github/license/scanopy/scanopy?style=for-the-badge)<br>
-![Daemon image size](https://img.shields.io/docker/image-size/mayanayza/scanopy-daemon?style=for-the-badge&label=Daemon%20image%20size) ![Server image size](https://img.shields.io/docker/image-size/mayanayza/scanopy-server?style=for-the-badge&label=Server%20image%20size
-)<br>
-![Daemon](https://img.shields.io/github/actions/workflow/status/scanopy/scanopy/daemon-ci.yml?label=daemon-ci&style=for-the-badge)  ![Server](https://img.shields.io/github/actions/workflow/status/scanopy/scanopy/server-ci.yml?label=server-ci&style=for-the-badge)  ![UI](https://img.shields.io/github/actions/workflow/status/scanopy/scanopy/ui-ci.yml?label=ui-ci&style=for-the-badge)<br>
-[![Discord](https://img.shields.io/discord/1432872786828726392?logo=discord&label=discord&labelColor=white&color=7289da&style=for-the-badge)](https://discord.gg/b7ffQr8AcZ)
-
-> 💡 **Prefer not to self-host?** [Get a free trial](https://scanopy.net) of Scanopy Cloud
-
-<p align="center">
-  <img src="./media/hero.png" width="1200" alt="Example Visualization">
-</p>
-
-## ✨ Key Features
+## Key Features
 
 - **Automatic Discovery**: Scans networks to identify hosts, services, and their relationships
 - **200+ Service Definitions**: Auto-detects databases, web servers, containers, network infrastructure, monitoring tools, and enterprise applications
@@ -32,62 +14,69 @@ Scanopy scans your network, identifies hosts and services, and generates an inte
 - **Organization Management**: Multi-user support with role-based permissions
 - **Scheduled Discovery**: Automated scanning to keep documentation current
 
-## 🎯 Perfect For
+## Roadmap
 
-- **Home Lab Enthusiasts**: Document your ever-growing infrastructure
-- **IT Professionals**: Maintain accurate network inventory without manual spreadsheets  
-- **System Administrators**: Visualize complex multi-VLAN environments
-- **DevOps Teams**: Map containerized services and their dependencies
-- **MSPs**: Manage multiple client networks with separate organizations
+See [ROADMAP.md](ROADMAP.md) for the development plan including:
+- MSP Client/Site hierarchy
+- Certificate & SSH key monitoring
+- Change detection & alerting  
+- VPN connectivity monitoring
+- AI-assisted service identification
+- Reconya-inspired dark UI theme
 
-## 🚀 Quick Start
-
-**Docker Compose**
+## Quick Start
 
 ```bash
-curl -O https://raw.githubusercontent.com/scanopy/scanopy/refs/heads/main/docker-compose.yml
 docker compose up -d
 ```
 
-**Proxmox**
-
-Use this [helper script](https://community-scripts.github.io/ProxmoxVE/scripts?id=scanopy) to create a Scanopy LXC.
-
-**Unraid**
-
-Available as an Unraid community app.
-
----
-
 Access the UI at `http://<your-server-ip>:60072`, create your account, and wait for the first discovery to complete.
 
-For detailed setup options and configuration, see the [Installation Guide](https://scanopy.net/docs/self-hosted/server-installation).
+## Development
 
-## 📚 Documentation
+```bash
+# Install dependencies
+make install-dev-mac  # or install-dev-linux
 
-**[scanopy.net/docs](https://scanopy.net/docs)**
+# Start development environment
+make dev-container
 
-## 🖼️ Examples
+# Or run components separately
+make setup-db
+make dev-server    # Terminal 1
+make dev-ui        # Terminal 2  
+make dev-daemon    # Terminal 3
+```
 
-**[scanopy.net/showcase](https://scanopy.net/showcase)**
+## Architecture
 
-## 📋 Licensing
-**Self-hosted ([AGPL-3.0](LICENSE.md)):** Free for all use. Requires source disclosure for network services and copyleft compliance.   
-**Self-hosted ([Commercial license](COMMERCIAL-LICENSE.md)):** For those who cannot comply with AGPL-3.0 terms. Contact licensing@scanopy.net  
-**Hosted Solution:** [Scanopy Cloud](https://scanopy.net) subscription for zero infrastructure management  
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                       VantageNet Server                         │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
+│  │   Axum API  │  │  PostgreSQL │  │  SvelteKit Frontend     │ │
+│  │  (Rust)     │  │  + Timescale│  │  + Tailwind (dark)      │ │
+│  └─────────────┘  └─────────────┘  └─────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+        ▲                                        ▲
+        │ Discovery Updates                      │ Work Requests
+        │ (Push or Pull)                         │
+        ▼                                        ▼
+┌───────────────┐    ┌───────────────┐    ┌───────────────┐
+│ VantageNet    │    │ VantageNet    │    │ VantageNet    │
+│ Daemon        │    │ Daemon        │    │ Daemon        │
+│ (Site A)      │    │ (Site B)      │    │ (Site C)      │
+└───────────────┘    └───────────────┘    └───────────────┘
+```
 
-## 🤝 Contributing
+## License
 
-We welcome contributions! See our [contributing guide](contributing.md) for details.
+AGPL-3.0 - See [LICENSE.md](LICENSE.md)
 
-Great first contribution: [adding service definitions](contributing.md#adding-service-definitions)
+## Contributing
 
-## 💬 Community & Support
-
-- **Discord**: [Join our Discord](https://discord.gg/b7ffQr8AcZ) for help and discussions
-- **Issues**: [Report bugs or request features](https://github.com/scanopy/scanopy/issues/new)
-- **Discussions**: [GitHub Discussions](https://github.com/scanopy/scanopy/discussions)
+Contributions welcome! See [contributing.md](contributing.md) for guidelines.
 
 ---
 
-**Built with ❤️ in NYC**
+**Based on [Scanopy](https://github.com/scanopy/scanopy)** - Forked with love for MSP use cases

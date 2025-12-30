@@ -1,13 +1,13 @@
 .PHONY: help build test clean format set-plan-community set-plan-starter set-plan-pro set-plan-team set-plan-business set-plan-enterprise
 
 help:
-	@echo "Scanopy Development Commands"
+	@echo "VantageNet Development Commands"
 	@echo ""
 	@echo "  make fresh-db       - Clean and set up a new database"
 	@echo "  make setup-db       - Set up database"
 	@echo "  make clean-db       - Clean up database"
 	@echo "  make clean-daemon   - Remove daemon config file"
-	@echo "  make dump-db        - Dump database to /scanopy"
+	@echo "  make dump-db        - Dump database to /vantagenet"
 	@echo "  make dev-server     - Start server dev environment"
 	@echo "  make dev-ui         - Start ui"
 	@echo "  make dev-daemon     - Start daemon dev environment"
@@ -39,27 +39,27 @@ fresh-db:
 setup-db:
 	@echo "Setting up PostgreSQL..."
 	@docker run -d \
-		--name scanopy-postgres \
+		--name vantagenet-postgres \
 		-e POSTGRES_USER=postgres \
 		-e POSTGRES_PASSWORD=password \
-		-e POSTGRES_DB=scanopy \
+		-e POSTGRES_DB=vantagenet \
 		-p 5432:5432 \
 		postgres:17-alpine || echo "Already running"
 	@sleep 3
 	@echo "PostgreSQL ready at localhost:5432"
 
 clean-db:
-	docker stop scanopy-postgres || true
-	docker rm scanopy-postgres || true
+	docker stop vantagenet-postgres || true
+	docker rm vantagenet-postgres || true
 
 clean-daemon:
-	rm -rf ~/Library/Application\ Support/com.scanopy.daemon
+	rm -rf ~/Library/Application\ Support/com.vantagenet.daemon
 
 dump-db:
-	docker exec -t scanopy-postgres pg_dump -U postgres -d scanopy > ~/dev/scanopy/scanopy.sql  
+	docker exec -t vantagenet-postgres pg_dump -U postgres -d vantagenet > ~/dev/vantagenet/vantagenet.sql  
 
 dev-server:
-	@export DATABASE_URL="postgresql://postgres:password@localhost:5432/scanopy" && \
+	@export DATABASE_URL="postgresql://postgres:password@localhost:5432/vantagenet" && \
 	cd backend && cargo run --bin server -- --log-level debug --public-url http://localhost:60072
 
 dev-daemon:
@@ -85,7 +85,7 @@ test:
 	cd ui && npx vite-node scripts/export-daemon-field-defs.ts > ../backend/src/tests/daemon-config-frontend-fields.json
 	make dev-down
 	rm -rf ./data/daemon_config/*
-	@export DATABASE_URL="postgresql://postgres:password@localhost:5432/scanopy_test" && \
+	@export DATABASE_URL="postgresql://postgres:password@localhost:5432/vantagenet_test" && \
 	cd backend && cargo test -- --nocapture --test-threads=1
 
 format:
@@ -154,36 +154,36 @@ install-dev-linux:
 # Plan management commands - set all organizations to a specific plan
 set-plan-community:
 	@echo "Setting all organizations to Community plan..."
-	@docker exec -t scanopy-postgres psql -U postgres -d scanopy -c \
+	@docker exec -t vantagenet-postgres psql -U postgres -d vantagenet -c \
 		"UPDATE organizations SET plan = '{\"type\": \"Community\", \"base_cents\": 0, \"rate\": \"Month\", \"trial_days\": 0, \"seat_cents\": null, \"network_cents\": null, \"included_seats\": null, \"included_networks\": null}'::jsonb"
 	@echo "Done!"
 
 set-plan-starter:
 	@echo "Setting all organizations to Starter plan..."
-	@docker exec -t scanopy-postgres psql -U postgres -d scanopy -c \
+	@docker exec -t vantagenet-postgres psql -U postgres -d vantagenet -c \
 		"UPDATE organizations SET plan = '{\"type\": \"Starter\", \"base_cents\": 999, \"rate\": \"Month\", \"trial_days\": 7, \"seat_cents\": null, \"network_cents\": null, \"included_seats\": 1, \"included_networks\": 1}'::jsonb"
 	@echo "Done!"
 
 set-plan-pro:
 	@echo "Setting all organizations to Pro plan..."
-	@docker exec -t scanopy-postgres psql -U postgres -d scanopy -c \
+	@docker exec -t vantagenet-postgres psql -U postgres -d vantagenet -c \
 		"UPDATE organizations SET plan = '{\"type\": \"Pro\", \"base_cents\": 1999, \"rate\": \"Month\", \"trial_days\": 7, \"seat_cents\": null, \"network_cents\": null, \"included_seats\": 1, \"included_networks\": 3}'::jsonb"
 	@echo "Done!"
 
 set-plan-team:
 	@echo "Setting all organizations to Team plan..."
-	@docker exec -t scanopy-postgres psql -U postgres -d scanopy -c \
+	@docker exec -t vantagenet-postgres psql -U postgres -d vantagenet -c \
 		"UPDATE organizations SET plan = '{\"type\": \"Team\", \"base_cents\": 3999, \"rate\": \"Month\", \"trial_days\": 7, \"seat_cents\": 1000, \"network_cents\": 800, \"included_seats\": 5, \"included_networks\": 5}'::jsonb"
 	@echo "Done!"
 
 set-plan-business:
 	@echo "Setting all organizations to Business plan..."
-	@docker exec -t scanopy-postgres psql -U postgres -d scanopy -c \
+	@docker exec -t vantagenet-postgres psql -U postgres -d vantagenet -c \
 		"UPDATE organizations SET plan = '{\"type\": \"Business\", \"base_cents\": 5999, \"rate\": \"Month\", \"trial_days\": 14, \"seat_cents\": 800, \"network_cents\": 500, \"included_seats\": 10, \"included_networks\": 25}'::jsonb"
 	@echo "Done!"
 
 set-plan-enterprise:
 	@echo "Setting all organizations to Enterprise plan..."
-	@docker exec -t scanopy-postgres psql -U postgres -d scanopy -c \
+	@docker exec -t vantagenet-postgres psql -U postgres -d vantagenet -c \
 		"UPDATE organizations SET plan = '{\"type\": \"Enterprise\", \"base_cents\": 0, \"rate\": \"Month\", \"trial_days\": 0, \"seat_cents\": null, \"network_cents\": null, \"included_seats\": null, \"included_networks\": null}'::jsonb"
 	@echo "Done!"

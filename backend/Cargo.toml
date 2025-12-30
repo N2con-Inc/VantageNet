@@ -1,8 +1,8 @@
 [package]
-name = "scanopy-server"
-version = "0.12.8"
+name = "vantagenet-server"
+version = "0.1.0"
 edition = "2024"
-description = "Scanopy HTTP API server"
+description = "VantageNet HTTP API server"
 
 [[bin]]
 name = "daemon"
@@ -13,7 +13,7 @@ name = "server"
 path = "src/bin/server.rs"
 
 [lib]
-name = "scanopy"
+name = "vantagenet"
 path = "src/lib.rs"
 
 # Release profile optimizations for smaller, faster binaries

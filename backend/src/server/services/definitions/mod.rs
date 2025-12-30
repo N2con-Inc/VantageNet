@@ -336,7 +336,7 @@ pub mod wizarr;
 
 // ============= SPECIAL =============
 
-// Scanopy
+// VantageNet
 pub mod open_ports;
-pub mod scanopy_daemon;
-pub mod scanopy_server;
+pub mod vantagenet_daemon;
+pub mod vantagenet_server;

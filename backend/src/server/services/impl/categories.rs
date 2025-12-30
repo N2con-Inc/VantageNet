@@ -75,7 +75,7 @@ pub enum ServiceCategory {
     // Special
     Unknown,
     Custom,
-    Scanopy,
+    VantageNet,
     OpenPorts,
 }
 
@@ -134,7 +134,7 @@ impl EntityMetadataProvider for ServiceCategory {
             ServiceCategory::Publishing => Icon::PenLine,
 
             // Special
-            ServiceCategory::Scanopy => Icon::Zap,
+            ServiceCategory::VantageNet => Icon::Zap,
             ServiceCategory::Custom => Icon::Sparkle,
             ServiceCategory::OpenPorts => EntityDiscriminants::Port.icon(),
             ServiceCategory::Unknown => Icon::CircleQuestionMark,
@@ -189,7 +189,7 @@ impl EntityMetadataProvider for ServiceCategory {
             ServiceCategory::Publishing => Color::Purple, // was "violet", mapped to purple
 
             // Special
-            ServiceCategory::Scanopy => Color::Purple,
+            ServiceCategory::VantageNet => Color::Purple,
             ServiceCategory::Custom => Color::Rose,
             ServiceCategory::OpenPorts => EntityDiscriminants::Port.color(),
             ServiceCategory::Unknown => Color::Gray,

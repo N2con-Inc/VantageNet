@@ -3,12 +3,12 @@
 use crate::infra::{TestContext, reset_plan_to_default, set_billable_plan, set_plan_status};
 use cidr::{IpCidr, Ipv4Cidr};
 use reqwest::StatusCode;
-use scanopy::server::hosts::r#impl::base::Host;
-use scanopy::server::shared::storage::traits::StorableEntity;
-use scanopy::server::shared::types::entities::EntitySource;
-use scanopy::server::subnets::r#impl::base::{Subnet, SubnetBase};
-use scanopy::server::subnets::r#impl::types::SubnetType;
-use scanopy::server::tags::r#impl::base::Tag;
+use vantagenet::server::hosts::r#impl::base::Host;
+use vantagenet::server::shared::storage::traits::StorableEntity;
+use vantagenet::server::shared::types::entities::EntitySource;
+use vantagenet::server::subnets::r#impl::base::{Subnet, SubnetBase};
+use vantagenet::server::subnets::r#impl::types::SubnetType;
+use vantagenet::server::tags::r#impl::base::Tag;
 use std::net::Ipv4Addr;
 
 pub async fn run_billing_tests(ctx: &TestContext) -> Result<(), String> {

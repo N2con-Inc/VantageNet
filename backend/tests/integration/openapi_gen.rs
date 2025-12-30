@@ -6,9 +6,9 @@
 //!
 //! No Docker containers are required - this is purely compile-time.
 
-use scanopy::server::config::AppState;
-use scanopy::server::openapi::{build_openapi, export_openapi_spec_to_file, filter_internal_paths};
-use scanopy::server::shared::handlers::factory::create_openapi_routes;
+use vantagenet::server::config::AppState;
+use vantagenet::server::openapi::{build_openapi, export_openapi_spec_to_file, filter_internal_paths};
+use vantagenet::server::shared::handlers::factory::create_openapi_routes;
 use std::sync::Arc;
 use utoipa::openapi::OpenApi;
 
@@ -46,9 +46,9 @@ fn collect_all_routes() -> OpenApi {
         .split_for_parts();
 
     // Cacheable routes (config, metadata, github-stars)
-    use scanopy::server::config::{__path_get_public_config, get_public_config};
-    use scanopy::server::github::handlers::{__path_get_stars, get_stars};
-    use scanopy::server::shared::types::metadata::{
+    use vantagenet::server::config::{__path_get_public_config, get_public_config};
+    use vantagenet::server::github::handlers::{__path_get_stars, get_stars};
+    use vantagenet::server::shared::types::metadata::{
         __path_get_metadata_registry, get_metadata_registry,
     };
 

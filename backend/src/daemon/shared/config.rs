@@ -14,8 +14,8 @@ use uuid::Uuid;
 use crate::server::daemons::r#impl::base::DaemonMode;
 
 #[derive(Parser)]
-#[command(name = "scanopy-daemon")]
-#[command(about = "Scanopy network discovery and test execution daemon")]
+#[command(name = "vantagenet-daemon")]
+#[command(about = "VantageNet network discovery and test execution daemon")]
 pub struct DaemonCli {
     /// Complete Server URL
     #[arg(long)]
@@ -131,7 +131,7 @@ impl Default for AppConfig {
             network_id: None,
             daemon_port: 60073,
             bind_address: "0.0.0.0".to_string(),
-            name: "scanopy-daemon".to_string(),
+            name: "vantagenet-daemon".to_string(),
             log_level: "info".to_string(),
             heartbeat_interval: 30,
             id: Uuid::new_v4(),
@@ -154,7 +154,7 @@ impl Default for AppConfig {
 
 impl AppConfig {
     pub fn get_config_path() -> Result<(bool, PathBuf)> {
-        let proj_dirs = ProjectDirs::from("com", "scanopy", "daemon")
+        let proj_dirs = ProjectDirs::from("com", "vantagenet", "daemon")
             .ok_or_else(|| anyhow::anyhow!("Unable to determine config directory"))?;
 
         let config_path = proj_dirs.config_dir().join("config.json");
@@ -171,17 +171,17 @@ impl AppConfig {
             figment = figment.merge(Json::file(&config_path));
         }
 
-        // Add environment variables
+        // Add environment variables (support legacy prefixes for migration)
         figment = figment
             .merge(Env::prefixed("NETVISOR_"))
-            .merge(Env::prefixed("SCANOPY_"));
+            .merge(Env::prefixed("SCANOPY_"))
+            .merge(Env::prefixed("VANTAGENET_"));
 
         for (key, _) in std::env::vars() {
-            if key.starts_with("NETVISOR_") {
+            if key.starts_with("NETVISOR_") || key.starts_with("SCANOPY_") {
                 tracing::warn!(
-                    "Env vars prefixed with NETVISOR_ Will be deprecated in v0.13.0: {} - please migrate to SCANOPY_{}",
-                    key,
-                    key.trim_start_matches("NETVISOR_")
+                    "Env vars prefixed with NETVISOR_ or SCANOPY_ are deprecated - please migrate to VANTAGENET_{}",
+                    key.trim_start_matches("NETVISOR_").trim_start_matches("SCANOPY_")
                 );
                 break; // Only warn once
             }
@@ -569,7 +569,7 @@ mod tests {
                 let id = a.get_id().to_string();
 
                 // Derive env var from field ID using same conversion as Figment
-                let env_var = format!("SCANOPY_{}", id.to_uppercase());
+                let env_var = format!("VANTAGENET_{}", id.to_uppercase());
 
                 let info = FieldInfo {
                     cli_flag: a.get_long().map(|l| format!("--{}", l)).unwrap_or_default(),

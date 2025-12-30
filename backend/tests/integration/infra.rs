@@ -2,16 +2,16 @@
 
 use email_address::EmailAddress;
 use reqwest::StatusCode;
-use scanopy::server::auth::r#impl::api::{
+use vantagenet::server::auth::r#impl::api::{
     LoginRequest, NetworkSetup, RegisterRequest, SetupRequest, SetupResponse,
 };
-use scanopy::server::daemons::r#impl::base::Daemon;
-use scanopy::server::networks::r#impl::Network;
-use scanopy::server::organizations::r#impl::base::Organization;
-use scanopy::server::shared::storage::generic::GenericPostgresStorage;
-use scanopy::server::shared::storage::traits::{StorableEntity, Storage};
-use scanopy::server::shared::types::api::ApiResponse;
-use scanopy::server::users::r#impl::base::User;
+use vantagenet::server::daemons::r#impl::base::Daemon;
+use vantagenet::server::networks::r#impl::Network;
+use vantagenet::server::organizations::r#impl::base::Organization;
+use vantagenet::server::shared::storage::generic::GenericPostgresStorage;
+use vantagenet::server::shared::storage::traits::{StorableEntity, Storage};
+use vantagenet::server::shared::types::api::ApiResponse;
+use vantagenet::server::users::r#impl::base::User;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use sqlx::PgPool;

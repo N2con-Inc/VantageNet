@@ -1,10 +1,10 @@
-name: scanopy
+name: vantagenet
 
 services:
   postgres-dev:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: scanopy
+      POSTGRES_DB: vantagenet
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
     volumes:
@@ -17,7 +17,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      scanopy-dev:
+      vantagenet-dev:
         ipv4_address: 172.25.0.6
 
   server:
@@ -29,12 +29,12 @@ services:
       - "60072:60072"
     environment:
       - RUST_LOG=debug,sqlx=off,tower_http=off
-      - SCANOPY_PUBLIC_URL=http://localhost:60072
-      - SCANOPY_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres-dev:5432/scanopy
-      - SCANOPY_WEB_EXTERNAL_PATH=/app/static
-      - SCANOPY_LOG_LEVEL=debug
-      - SCANOPY_INTEGRATED_DAEMON_URL=http://daemon:60073
-      - SCANOPY_ENFORCE_BILLING_FOR_TESTING=true
+      - VANTAGENET_PUBLIC_URL=http://localhost:60072
+      - VANTAGENET_DATABASE_URL=postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres-dev:5432/vantagenet
+      - VANTAGENET_WEB_EXTERNAL_PATH=/app/static
+      - VANTAGENET_LOG_LEVEL=debug
+      - VANTAGENET_INTEGRATED_DAEMON_URL=http://daemon:60073
+      - VANTAGENET_ENFORCE_BILLING_FOR_TESTING=true
     volumes:
       - ./backend:/app
       - data-volume:/data
@@ -54,7 +54,7 @@ services:
       retries: 10
       start_period: 600s
     networks:
-      scanopy-dev:
+      vantagenet-dev:
         ipv4_address: 172.25.0.3
 
   daemon:
@@ -64,16 +64,16 @@ services:
     privileged: true
     restart: unless-stopped
     environment:
-      - SCANOPY_SERVER_URL=http://server:60072
-      - SCANOPY_DAEMON_PORT=60073
-      - SCANOPY_BIND_ADDRESS=0.0.0.0
-      - SCANOPY_NAME=scanopy-daemon
-      - SCANOPY_MODE=Push
-      - SCANOPY_LOG_LEVEL=debug
-      - SCANOPY_HEARTBEAT_INTERVAL=30
+      - VANTAGENET_SERVER_URL=http://server:60072
+      - VANTAGENET_DAEMON_PORT=60073
+      - VANTAGENET_BIND_ADDRESS=0.0.0.0
+      - VANTAGENET_NAME=vantagenet-daemon
+      - VANTAGENET_MODE=Push
+      - VANTAGENET_LOG_LEVEL=debug
+      - VANTAGENET_HEARTBEAT_INTERVAL=30
     volumes:
       - ./backend:/app
-      - ./data/daemon_config:/root/.config/scanopy/daemon
+      - ./data/daemon_config:/root/.config/vantagenet/daemon
       - cargo-cache:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - rust-target:/app/target
@@ -85,7 +85,7 @@ services:
       retries: 15
       start_period: 600s
     networks:
-      scanopy-dev:
+      vantagenet-dev:
         ipv4_address: 172.25.0.4
 
   homeassistant:
@@ -101,7 +101,7 @@ services:
       - 8123:8123
     restart: unless-stopped
     networks:
-      scanopy-dev:
+      vantagenet-dev:
         ipv4_address: 172.25.0.5
 
 volumes:
@@ -115,7 +115,7 @@ volumes:
   homeassistant-config:
 
 networks:
-  scanopy-dev:
+  vantagenet-dev:
     driver: bridge
     ipam:
       config:

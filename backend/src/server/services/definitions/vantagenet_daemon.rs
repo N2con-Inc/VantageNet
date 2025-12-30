@@ -5,28 +5,28 @@ use crate::server::services::r#impl::definitions::ServiceDefinition;
 use crate::server::services::r#impl::patterns::Pattern;
 
 #[derive(Default, Clone, Eq, PartialEq, Hash)]
-pub struct ScanopyDaemon;
+pub struct VantageNetDaemon;
 
-impl ServiceDefinition for ScanopyDaemon {
+impl ServiceDefinition for VantageNetDaemon {
     fn name(&self) -> &'static str {
-        "Scanopy Daemon"
+        "VantageNet Daemon"
     }
     fn description(&self) -> &'static str {
         "Automatically discover and visually document network infrastructure"
     }
     fn category(&self) -> ServiceCategory {
-        ServiceCategory::Scanopy
+        ServiceCategory::VantageNet
     }
 
     fn discovery_pattern(&self) -> Pattern<'_> {
-        Pattern::Endpoint(PortType::new_tcp(60073), "/api/health", "scanopy", None)
+        Pattern::Endpoint(PortType::new_tcp(60073), "/api/health", "vantagenet", None)
     }
 
     fn logo_url(&self) -> &'static str {
-        "https://cdn.jsdelivr.net/gh/scanopy/website@main/static/scanopy-logo.png"
+        "/logos/vantagenet-logo.png"
     }
 }
 
 inventory::submit!(ServiceDefinitionFactory::new(
-    create_service::<ScanopyDaemon>
+    create_service::<VantageNetDaemon>
 ));

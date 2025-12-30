@@ -40,7 +40,7 @@ pub trait ServiceDefinition: HasId + DynClone + DynHash + DynEq + Send + Sync {
     /// Dashboard Icons: Home Assistant -> https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg/home-assistant
     /// Simple Icons: Home Assistant -> https://simpleicons.org/icons/homeassistant.svg.
     /// Vector Logo Icons: Akamai -> https://www.vectorlogo.zone/logos/akamai/akamai-icon.svg
-    /// Static file: Scanopy -> /logos/scanopy-logo.png
+    /// Static file: VantageNet -> /logos/vantagenet-logo.png
     fn logo_url(&self) -> &'static str {
         ""
     }
@@ -94,7 +94,7 @@ impl ServiceDefinition for Box<dyn ServiceDefinition> {
 pub trait ServiceDefinitionExt {
     fn can_be_manually_added(&self) -> bool;
     fn manages_virtualization(&self) -> Option<&'static str>;
-    fn is_scanopy(&self) -> bool;
+    fn is_vantagenet(&self) -> bool;
     fn is_generic(&self) -> bool;
     fn is_gateway(&self) -> bool;
     fn has_logo(&self) -> bool;
@@ -104,7 +104,7 @@ impl ServiceDefinitionExt for Box<dyn ServiceDefinition> {
     fn can_be_manually_added(&self) -> bool {
         !matches!(
             ServiceDefinition::category(self),
-            ServiceCategory::Scanopy | ServiceCategory::OpenPorts
+            ServiceCategory::VantageNet | ServiceCategory::OpenPorts
         )
     }
 
@@ -112,8 +112,8 @@ impl ServiceDefinitionExt for Box<dyn ServiceDefinition> {
         ServiceDefinition::is_generic(&**self)
     }
 
-    fn is_scanopy(&self) -> bool {
-        matches!(ServiceDefinition::category(self), ServiceCategory::Scanopy)
+    fn is_vantagenet(&self) -> bool {
+        matches!(ServiceDefinition::category(self), ServiceCategory::VantageNet)
     }
 
     fn is_gateway(&self) -> bool {

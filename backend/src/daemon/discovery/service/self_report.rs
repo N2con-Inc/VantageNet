@@ -12,7 +12,7 @@ use crate::{
         interfaces::r#impl::base::{ALL_INTERFACES_IP, Interface},
         ports::r#impl::base::{Port, PortType},
         services::{
-            definitions::scanopy_daemon::ScanopyDaemon,
+            definitions::vantagenet_daemon::VantageNetDaemon,
             r#impl::{base::ServiceBase, definitions::ServiceDefinition, patterns::MatchDetails},
         },
         shared::{
@@ -195,7 +195,7 @@ impl RunsDiscovery for DiscoveryRunner<SelfReportDiscovery> {
             name: hostname.clone().unwrap_or(format!("{}", local_ip)),
             hostname,
             network_id,
-            description: Some("Scanopy daemon".to_string()),
+            description: Some("VantageNet daemon".to_string()),
             tags: Vec::new(),
             source: EntitySource::Discovery {
                 metadata: vec![DiscoveryMetadata::new(self.discovery_type(), daemon_id)],
@@ -212,7 +212,7 @@ impl RunsDiscovery for DiscoveryRunner<SelfReportDiscovery> {
         host.id = host_id;
 
         let mut services = Vec::new();
-        let daemon_service_definition = ScanopyDaemon;
+        let daemon_service_definition = VantageNetDaemon;
 
         let daemon_service_bound_interfaces: Vec<&Interface> = interfaces
             .iter()
@@ -232,7 +232,7 @@ impl RunsDiscovery for DiscoveryRunner<SelfReportDiscovery> {
             virtualization: None,
             source: EntitySource::DiscoveryWithMatch {
                 metadata: vec![DiscoveryMetadata::new(self.discovery_type(), daemon_id)],
-                details: MatchDetails::new_certain("Scanopy Daemon self-report"),
+                details: MatchDetails::new_certain("VantageNet Daemon self-report"),
             },
         });
 
