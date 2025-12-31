@@ -80,6 +80,10 @@ pub struct DaemonCli {
     /// Public URL where server can reach daemon, if running in Push mode. Defaults to auto-detected IP + Daemon Port if not set.
     #[arg(long)]
     daemon_url: Option<String>,
+
+    /// User ID of the person who installed this daemon. Used for deprecation notifications.
+    #[arg(long)]
+    user_id: Option<Uuid>,
 }
 
 /// Unified configuration struct that handles both startup and runtime config
@@ -109,6 +113,9 @@ pub struct AppConfig {
     pub host_id: Option<Uuid>,
     #[serde(default, alias = "daemon_api_key")]
     pub daemon_api_key: Option<String>,
+    /// User responsible for maintaining this daemon (from install command)
+    #[serde(default)]
+    pub user_id: Option<Uuid>,
     #[serde(default)]
     pub docker_proxy: Option<String>,
     #[serde(default)]
@@ -138,6 +145,7 @@ impl Default for AppConfig {
             last_heartbeat: None,
             host_id: None,
             daemon_api_key: None,
+            user_id: None,
             concurrent_scans: 15,
             docker_proxy: None,
             mode: DaemonMode::Push,
@@ -232,6 +240,9 @@ impl AppConfig {
         }
         if let Some(allow_self_signed_certs) = cli_args.allow_self_signed_certs {
             figment = figment.merge(("allow_self_signed_certs", allow_self_signed_certs));
+        }
+        if let Some(user_id) = cli_args.user_id {
+            figment = figment.merge(("user_id", user_id));
         }
 
         let config: AppConfig = figment
@@ -347,6 +358,17 @@ impl ConfigStore {
     pub async fn set_host_id(&self, host_id: Uuid) -> Result<()> {
         let mut config = self.config.write().await;
         config.host_id = Some(host_id);
+        self.save(&config.clone()).await
+    }
+
+    pub async fn get_user_id(&self) -> Result<Option<Uuid>> {
+        let config = self.config.read().await;
+        Ok(config.user_id)
+    }
+
+    pub async fn set_user_id(&self, user_id: Uuid) -> Result<()> {
+        let mut config = self.config.write().await;
+        config.user_id = Some(user_id);
         self.save(&config.clone()).await
     }
 
@@ -497,10 +519,12 @@ mod tests {
         help_text: String,
     }
 
-    const EXCLUDED_FIELDS: [&str; 5] = [
+    const EXCLUDED_FIELDS: [&str; 6] = [
         "daemon_api_key",
         "network_id",
         "server_url",
+        // Automatically set by install command, not user-configurable
+        "user_id",
         // Legacy fields not exposed in UI
         "server_target",
         "server_port",

@@ -1,0 +1,13 @@
+{
+  "_meta": {
+    "method": "POST",
+    "path_template": "/api/daemons/{id}/heartbeat",
+    "captured_at": "2025-01-15T10:30:00Z",
+    "daemon_version": "0.12.8"
+  },
+  "payload": {
+    "url": "http://192.168.1.50:60073",
+    "name": "scanopy-daemon",
+    "mode": "Push"
+  }
+}

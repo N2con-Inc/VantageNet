@@ -41,6 +41,7 @@ use std::sync::Arc;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt, core::WaitFor, runners::AsyncRunner};
 use uuid::Uuid;
 
+pub mod daemon_compat;
 pub mod dependencies;
 
 pub const DAEMON_CONFIG_FIXTURE: &str = "src/tests/daemon_config.json";
@@ -177,6 +178,8 @@ pub fn daemon(network_id: &Uuid, host_id: &Uuid) -> Daemon {
             has_docker_socket: false,
             interfaced_subnet_ids: Vec::new(),
         },
+        version: None,
+        user_id: Uuid::nil(),
     })
 }
 

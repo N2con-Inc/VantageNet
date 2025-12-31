@@ -6,7 +6,7 @@
     "license": {
       "name": "Dual (AGPL3.0, Commercial License Available)"
     },
-    "version": "0.12.6"
+    "version": "0.12.8"
   },
   "paths": {
     "/api/auth/daemon-setup": {
@@ -1315,43 +1315,16 @@
         "tags": [
           "daemons"
         ],
-        "summary": "List all daemons",
-        "operationId": "list_daemons",
-        "parameters": [
-          {
-            "name": "host_id",
-            "in": "query",
-            "description": "Filter by host ID",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "network_id",
-            "in": "query",
-            "description": "Filter by network ID",
-            "required": false,
-            "schema": {
-              "type": [
-                "string",
-                "null"
-              ],
-              "format": "uuid"
-            }
-          }
-        ],
+        "summary": "Get all daemons",
+        "description": "Returns all daemons accessible to the user with computed version status.",
+        "operationId": "get_daemons",
         "responses": {
           "200": {
             "description": "List of daemons",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_Vec_Daemon"
+                  "$ref": "#/components/schemas/ApiResponse_Vec_DaemonResponse"
                 }
               }
             }
@@ -1459,6 +1432,7 @@
           "daemons"
         ],
         "summary": "Get daemon by ID",
+        "description": "Returns a specific daemon with computed version status.",
         "operationId": "get_daemon_by_id",
         "parameters": [
           {
@@ -1478,7 +1452,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ApiResponse_Daemon"
+                  "$ref": "#/components/schemas/ApiResponse_DaemonResponse"
                 }
               }
             }
@@ -1641,6 +1615,66 @@
         "responses": {
           "200": {
             "description": "Work request processed - returns (Option<DiscoveryUpdatePayload>, bool)"
+          },
+          "404": {
+            "description": "Daemon not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "api_key": []
+          }
+        ]
+      }
+    },
+    "/api/daemons/{id}/startup": {
+      "post": {
+        "tags": [
+          "daemons",
+          "internal"
+        ],
+        "summary": "Daemon startup handshake",
+        "description": "Internal endpoint for daemons to report their version on startup.\nUpdates the daemon's version and last_seen timestamp, returns server capabilities.",
+        "operationId": "daemon_startup",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Daemon ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DaemonStartupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Startup acknowledged",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiResponse_ServerCapabilities"
+                }
+              }
+            }
           },
           "404": {
             "description": "Daemon not found",
@@ -2510,7 +2544,7 @@
           "hosts"
         ],
         "summary": "Create a new host",
-        "description": "Creates a host with optional interfaces, ports, and services.\nThe `source` field is automatically set to `Manual`.\nIDs for the host and all children are generated server-side.\n\n### Tag Validation\n\n- Tags must exist and belong to your organization\n- Duplicate tag UUIDs are automatically deduplicated\n- Invalid or cross-organization tag UUIDs return a 400 error",
+        "description": "Creates a host with optional interfaces, ports, and services.\nThe `source` field is automatically set to `Manual`.\nIDs for the host and all children are generated server-side.\n\n### Tag Validation\n\n- Tags must exist and belong to your organization\n- Duplicate tag UUIDs are automatically deduplicated\n- Invalid or cross-organization tag UUIDs return a 400 error\n\n### Legacy Format (Daemon Backwards Compatibility)\n\nThis endpoint also accepts the legacy `HostWithServicesRequest` format\nfrom old daemons. Legacy requests are automatically detected and\ntransformed to the new format. Legacy support will be removed in a\nfuture release.",
         "operationId": "create_host",
         "requestBody": {
           "content": {
@@ -6490,14 +6524,14 @@
             ],
             "description": "Association between a service and a port / interface that the service is listening on",
             "example": {
-              "created_at": "2025-12-28T15:52:09.785582Z",
-              "id": "28f9da3b-605a-4e5b-b006-3c55d423862b",
+              "created_at": "2025-12-31T03:32:31.295101Z",
+              "id": "83364544-6c3e-4733-a28e-c33207dea74a",
               "interface_id": "550e8400-e29b-41d4-a716-446655440005",
               "network_id": "550e8400-e29b-41d4-a716-446655440002",
               "port_id": "550e8400-e29b-41d4-a716-446655440006",
               "service_id": "550e8400-e29b-41d4-a716-446655440007",
               "type": "Port",
-              "updated_at": "2025-12-28T15:52:09.785582Z"
+              "updated_at": "2025-12-31T03:32:31.295101Z"
             }
           },
           "error": {
@@ -6545,55 +6579,6 @@
           }
         }
       },
-      "ApiResponse_Daemon": {
-        "type": "object",
-        "required": [
-          "success"
-        ],
-        "properties": {
-          "data": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DaemonBase"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "id",
-                  "updated_at",
-                  "created_at"
-                ],
-                "properties": {
-                  "created_at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "readOnly": true
-                  },
-                  "id": {
-                    "type": "string",
-                    "format": "uuid",
-                    "readOnly": true
-                  },
-                  "updated_at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "readOnly": true
-                  }
-                }
-              }
-            ]
-          },
-          "error": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "success": {
-            "type": "boolean"
-          }
-        }
-      },
       "ApiResponse_DaemonRegistrationResponse": {
         "type": "object",
         "required": [
@@ -6614,8 +6599,71 @@
               "host_id": {
                 "type": "string",
                 "format": "uuid"
+              },
+              "server_capabilities": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ServerCapabilities",
+                    "description": "Server capabilities (returned if daemon sends version info)"
+                  }
+                ]
               }
             }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ApiResponse_DaemonResponse": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DaemonBase"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "id",
+                  "created_at",
+                  "updated_at",
+                  "version_status"
+                ],
+                "properties": {
+                  "created_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "updated_at": {
+                    "type": "string",
+                    "format": "date-time"
+                  },
+                  "version_status": {
+                    "$ref": "#/components/schemas/DaemonVersionStatus",
+                    "description": "Computed version status including health and warnings"
+                  }
+                }
+              }
+            ],
+            "description": "Daemon response for UI including computed version status"
           },
           "error": {
             "type": [
@@ -7495,6 +7543,48 @@
           }
         }
       },
+      "ApiResponse_ServerCapabilities": {
+        "type": "object",
+        "required": [
+          "success"
+        ],
+        "properties": {
+          "data": {
+            "type": "object",
+            "description": "Server capabilities returned on startup/registration",
+            "required": [
+              "server_version",
+              "minimum_daemon_version"
+            ],
+            "properties": {
+              "deprecation_warnings": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DeprecationWarning"
+                },
+                "description": "Deprecation warnings for the daemon"
+              },
+              "minimum_daemon_version": {
+                "type": "string",
+                "description": "Minimum daemon version supported by this server"
+              },
+              "server_version": {
+                "type": "string",
+                "description": "Server software version"
+              }
+            }
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          }
+        }
+      },
       "ApiResponse_Service": {
         "type": "object",
         "required": [
@@ -7535,14 +7625,14 @@
             "example": {
               "bindings": [
                 {
-                  "created_at": "2025-12-28T15:52:09.782094Z",
-                  "id": "70165f64-cf00-4771-b1ef-5debb47ca7cd",
+                  "created_at": "2025-12-31T03:32:31.291226Z",
+                  "id": "3a7140ad-4b1e-489b-84f8-18829fb4e46b",
                   "interface_id": "550e8400-e29b-41d4-a716-446655440005",
                   "network_id": "550e8400-e29b-41d4-a716-446655440002",
                   "port_id": "550e8400-e29b-41d4-a716-446655440006",
                   "service_id": "550e8400-e29b-41d4-a716-446655440007",
                   "type": "Port",
-                  "updated_at": "2025-12-28T15:52:09.782094Z"
+                  "updated_at": "2025-12-31T03:32:31.291226Z"
                 }
               ],
               "created_at": "2026-01-15T10:30:00Z",
@@ -7550,7 +7640,7 @@
               "id": "550e8400-e29b-41d4-a716-446655440007",
               "name": "nginx",
               "network_id": "550e8400-e29b-41d4-a716-446655440002",
-              "service_definition": "Kerberos",
+              "service_definition": "Homepage",
               "source": {
                 "type": "Manual"
               },
@@ -8176,14 +8266,14 @@
               ],
               "description": "Association between a service and a port / interface that the service is listening on",
               "example": {
-                "created_at": "2025-12-28T15:52:09.785390Z",
-                "id": "07a9be6a-286e-40a1-9092-6a2ccc9fda85",
+                "created_at": "2025-12-31T03:32:31.294878Z",
+                "id": "e1530ec0-7249-4441-9896-75c0fc3a0759",
                 "interface_id": "550e8400-e29b-41d4-a716-446655440005",
                 "network_id": "550e8400-e29b-41d4-a716-446655440002",
                 "port_id": "550e8400-e29b-41d4-a716-446655440006",
                 "service_id": "550e8400-e29b-41d4-a716-446655440007",
                 "type": "Port",
-                "updated_at": "2025-12-28T15:52:09.785390Z"
+                "updated_at": "2025-12-31T03:32:31.294878Z"
               }
             }
           },
@@ -8198,7 +8288,7 @@
           }
         }
       },
-      "ApiResponse_Vec_Daemon": {
+      "ApiResponse_Vec_DaemonResponse": {
         "type": "object",
         "required": [
           "success"
@@ -8215,28 +8305,31 @@
                   "type": "object",
                   "required": [
                     "id",
+                    "created_at",
                     "updated_at",
-                    "created_at"
+                    "version_status"
                   ],
                   "properties": {
                     "created_at": {
                       "type": "string",
-                      "format": "date-time",
-                      "readOnly": true
+                      "format": "date-time"
                     },
                     "id": {
                       "type": "string",
-                      "format": "uuid",
-                      "readOnly": true
+                      "format": "uuid"
                     },
                     "updated_at": {
                       "type": "string",
-                      "format": "date-time",
-                      "readOnly": true
+                      "format": "date-time"
+                    },
+                    "version_status": {
+                      "$ref": "#/components/schemas/DaemonVersionStatus",
+                      "description": "Computed version status including health and warnings"
                     }
                   }
                 }
-              ]
+              ],
+              "description": "Daemon response for UI including computed version status"
             }
           },
           "error": {
@@ -8881,14 +8974,14 @@
               "example": {
                 "bindings": [
                   {
-                    "created_at": "2025-12-28T15:52:09.781289Z",
-                    "id": "f110ec0d-7ed1-4e2e-94ef-ac3cc9addfa3",
+                    "created_at": "2025-12-31T03:32:31.290307Z",
+                    "id": "44d3b000-e5fc-4130-aebb-3d877051dda7",
                     "interface_id": "550e8400-e29b-41d4-a716-446655440005",
                     "network_id": "550e8400-e29b-41d4-a716-446655440002",
                     "port_id": "550e8400-e29b-41d4-a716-446655440006",
                     "service_id": "550e8400-e29b-41d4-a716-446655440007",
                     "type": "Port",
-                    "updated_at": "2025-12-28T15:52:09.781289Z"
+                    "updated_at": "2025-12-31T03:32:31.290307Z"
                   }
                 ],
                 "created_at": "2026-01-15T10:30:00Z",
@@ -8896,7 +8989,7 @@
                 "id": "550e8400-e29b-41d4-a716-446655440007",
                 "name": "nginx",
                 "network_id": "550e8400-e29b-41d4-a716-446655440002",
-                "service_definition": "Kerberos",
+                "service_definition": "Homepage",
                 "source": {
                   "type": "Manual"
                 },
@@ -9454,14 +9547,14 @@
         ],
         "description": "Association between a service and a port / interface that the service is listening on",
         "example": {
-          "created_at": "2025-12-28T15:52:09.775132Z",
-          "id": "eee38b0f-e671-48b0-b67f-16a32dfcf393",
+          "created_at": "2025-12-31T03:32:31.280768Z",
+          "id": "22590fab-3bfb-49c4-bc92-291ef33b8f49",
           "interface_id": "550e8400-e29b-41d4-a716-446655440005",
           "network_id": "550e8400-e29b-41d4-a716-446655440002",
           "port_id": "550e8400-e29b-41d4-a716-446655440006",
           "service_id": "550e8400-e29b-41d4-a716-446655440007",
           "type": "Port",
-          "updated_at": "2025-12-28T15:52:09.775132Z"
+          "updated_at": "2025-12-31T03:32:31.280768Z"
         }
       },
       "BindingBase": {
@@ -9931,7 +10024,8 @@
           "capabilities",
           "mode",
           "name",
-          "tags"
+          "tags",
+          "user_id"
         ],
         "properties": {
           "capabilities": {
@@ -9945,6 +10039,11 @@
             "type": "string",
             "format": "date-time",
             "readOnly": true
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User responsible for maintaining this daemon"
           },
           "mode": {
             "$ref": "#/components/schemas/DaemonMode"
@@ -9966,6 +10065,13 @@
           "url": {
             "type": "string",
             "readOnly": true
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Daemon software version (semver format)"
           }
         }
       },
@@ -10033,6 +10139,11 @@
             "type": "string",
             "format": "uuid"
           },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "User responsible for maintaining this daemon (from frontend install command)\nOptional for backwards compat with old daemons - defaults to nil UUID"
+          },
           "mode": {
             "$ref": "#/components/schemas/DaemonMode"
           },
@@ -10045,6 +10156,13 @@
           },
           "url": {
             "type": "string"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Daemon software version (optional for backwards compat with old daemons)"
           }
         }
       },
@@ -10062,8 +10180,54 @@
           "host_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "server_capabilities": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ServerCapabilities",
+                "description": "Server capabilities (returned if daemon sends version info)"
+              }
+            ]
           }
         }
+      },
+      "DaemonResponse": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DaemonBase"
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "created_at",
+              "updated_at",
+              "version_status"
+            ],
+            "properties": {
+              "created_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "updated_at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "version_status": {
+                "$ref": "#/components/schemas/DaemonVersionStatus",
+                "description": "Computed version status including health and warnings"
+              }
+            }
+          }
+        ],
+        "description": "Daemon response for UI including computed version status"
       },
       "DaemonSetupRequest": {
         "type": "object",
@@ -10097,6 +10261,43 @@
           }
         }
       },
+      "DaemonStartupRequest": {
+        "type": "object",
+        "description": "Sent by daemon on startup to report version",
+        "required": [
+          "daemon_version"
+        ],
+        "properties": {
+          "daemon_version": {
+            "type": "string",
+            "description": "Daemon software version (semver format)"
+          }
+        }
+      },
+      "DaemonVersionStatus": {
+        "type": "object",
+        "description": "Daemon version status including health and any warnings",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/VersionHealthStatus"
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeprecationWarning"
+            }
+          }
+        }
+      },
       "DeploymentType": {
         "type": "string",
         "enum": [
@@ -10104,6 +10305,37 @@
           "commercial",
           "community"
         ]
+      },
+      "DeprecationSeverity": {
+        "type": "string",
+        "description": "Severity level for deprecation warnings",
+        "enum": [
+          "Info",
+          "Warning",
+          "Critical"
+        ]
+      },
+      "DeprecationWarning": {
+        "type": "object",
+        "description": "Deprecation warning for daemon version",
+        "required": [
+          "message",
+          "severity"
+        ],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/DeprecationSeverity"
+          },
+          "sunset_date": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "Discovery": {
         "allOf": [
@@ -12089,6 +12321,31 @@
           }
         ]
       },
+      "ServerCapabilities": {
+        "type": "object",
+        "description": "Server capabilities returned on startup/registration",
+        "required": [
+          "server_version",
+          "minimum_daemon_version"
+        ],
+        "properties": {
+          "deprecation_warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeprecationWarning"
+            },
+            "description": "Deprecation warnings for the daemon"
+          },
+          "minimum_daemon_version": {
+            "type": "string",
+            "description": "Minimum daemon version supported by this server"
+          },
+          "server_version": {
+            "type": "string",
+            "description": "Server software version"
+          }
+        }
+      },
       "Service": {
         "allOf": [
           {
@@ -12123,14 +12380,14 @@
         "example": {
           "bindings": [
             {
-              "created_at": "2025-12-28T15:52:09.775086Z",
-              "id": "fbe66fd8-5000-4974-8d21-d8a0b54832c3",
+              "created_at": "2025-12-31T03:32:31.280721Z",
+              "id": "6dfab92a-28d4-49b6-9b8c-b4fcc894a275",
               "interface_id": "550e8400-e29b-41d4-a716-446655440005",
               "network_id": "550e8400-e29b-41d4-a716-446655440002",
               "port_id": "550e8400-e29b-41d4-a716-446655440006",
               "service_id": "550e8400-e29b-41d4-a716-446655440007",
               "type": "Port",
-              "updated_at": "2025-12-28T15:52:09.775086Z"
+              "updated_at": "2025-12-31T03:32:31.280721Z"
             }
           ],
           "created_at": "2026-01-15T10:30:00Z",
@@ -12138,7 +12395,7 @@
           "id": "550e8400-e29b-41d4-a716-446655440007",
           "name": "nginx",
           "network_id": "550e8400-e29b-41d4-a716-446655440002",
-          "service_definition": "Kerberos",
+          "service_definition": "Homepage",
           "source": {
             "type": "Manual"
           },
@@ -13212,6 +13469,15 @@
             "minimum": 0
           }
         }
+      },
+      "VersionHealthStatus": {
+        "type": "string",
+        "description": "Health status for daemon versions",
+        "enum": [
+          "Current",
+          "Outdated",
+          "Deprecated"
+        ]
       }
     },
     "securitySchemes": {

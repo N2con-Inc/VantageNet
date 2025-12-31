@@ -1,0 +1,11 @@
+{
+  "_meta": {
+    "method": "POST",
+    "path_template": "/api/daemons/{id}/startup",
+    "captured_at": "2025-01-15T10:30:00Z",
+    "daemon_version": "0.12.8"
+  },
+  "payload": {
+    "daemon_version": "0.12.8"
+  }
+}

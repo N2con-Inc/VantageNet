@@ -68,7 +68,7 @@ impl DemoData {
     /// Generate all demo data for the given organization
     /// Note: Groups are intentionally empty - they must be generated after services are created
     /// because group bindings reference actual service binding IDs from the database.
-    pub fn generate(organization_id: Uuid) -> Self {
+    pub fn generate(organization_id: Uuid, user_id: Uuid) -> Self {
         let now = Utc::now();
 
         // Generate all entities in dependency order
@@ -80,7 +80,7 @@ impl DemoData {
         // Collect hosts for daemon generation
         let hosts: Vec<&Host> = hosts_with_services.iter().map(|h| &h.host).collect();
 
-        let daemons = generate_daemons(&networks, &hosts, &subnets, now);
+        let daemons = generate_daemons(&networks, &hosts, &subnets, now, user_id);
         let api_keys = generate_api_keys(&networks, now);
         let topologies = generate_topologies(&networks, now);
 
@@ -1359,6 +1359,7 @@ fn generate_daemons(
     hosts: &[&Host],
     subnets: &[Subnet],
     now: DateTime<Utc>,
+    user_id: Uuid,
 ) -> Vec<Daemon> {
     let find_network = |name: &str| {
         networks
@@ -1390,6 +1391,8 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "HQ Daemon".to_string(),
                 tags: vec![],
+                version: None,
+                user_id,
             },
         });
     }
@@ -1415,6 +1418,8 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "Cloud Daemon".to_string(),
                 tags: vec![],
+                version: None,
+                user_id,
             },
         });
     }
@@ -1439,6 +1444,8 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "Denver Daemon".to_string(),
                 tags: vec![],
+                version: None,
+                user_id,
             },
         });
     }
@@ -1462,6 +1469,8 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "Riverside Daemon".to_string(),
                 tags: vec![],
+                version: None,
+                user_id,
             },
         });
     }

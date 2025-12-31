@@ -9,6 +9,7 @@
 	import Checkbox from '$lib/shared/components/forms/input/Checkbox.svelte';
 	import { ChevronDown, ChevronRight } from 'lucide-svelte';
 	import { useConfigQuery } from '$lib/shared/stores/config-query';
+	import { useCurrentUserQuery } from '$lib/features/auth/queries';
 	import { fieldDefs } from '../config';
 	import type { Daemon } from '../types/base';
 
@@ -31,6 +32,10 @@
 	}: Props = $props();
 
 	const configQuery = useConfigQuery();
+	const currentUserQuery = useCurrentUserQuery();
+
+	// Get current user ID for user_id field
+	let currentUserId = $derived(currentUserQuery.data?.id ?? null);
 
 	// Separate field defs - conditionally exclude mode if showModeSelect is false
 	let basicFieldDefs = $derived(
@@ -106,9 +111,11 @@
 		});
 	});
 
-	let runCommand = $derived(buildRunCommand(serverUrl, networkId, apiKey, formValues, daemon));
+	let runCommand = $derived(
+		buildRunCommand(serverUrl, networkId, apiKey, formValues, daemon, currentUserId)
+	);
 	let dockerCompose = $derived(
-		apiKey ? buildDockerCompose(serverUrl, networkId, apiKey, formValues) : ''
+		apiKey ? buildDockerCompose(serverUrl, networkId, apiKey, formValues, currentUserId) : ''
 	);
 
 	// Check if a field value passes all its validators
@@ -126,7 +133,8 @@
 		networkId: string,
 		key: string | null,
 		values: Record<string, string | number | boolean>,
-		daemon: Daemon | null
+		daemon: Daemon | null,
+		userId: string | null
 	): string {
 		let cmd = `sudo scanopy-daemon --server-url ${serverUrl}`;
 
@@ -136,6 +144,11 @@
 
 		if (key) {
 			cmd += ` --daemon-api-key ${key}`;
+		}
+
+		// Include user_id for new daemon registrations
+		if (!daemon && userId) {
+			cmd += ` --user-id ${userId}`;
 		}
 
 		for (const def of fieldDefs) {
@@ -171,12 +184,18 @@
 		serverUrl: string,
 		networkId: string,
 		key: string,
-		values: Record<string, string | number | boolean>
+		values: Record<string, string | number | boolean>,
+		userId: string | null
 	): string {
 		const envVars: string[] = [`SCANOPY_SERVER_URL=${serverUrl}`, `SCANOPY_DAEMON_API_KEY=${key}`];
 
 		if (networkId) {
 			envVars.splice(1, 0, `SCANOPY_NETWORK_ID=${networkId}`);
+		}
+
+		// Include user_id for new daemon registrations
+		if (userId) {
+			envVars.push(`SCANOPY_USER_ID=${userId}`);
 		}
 
 		for (const def of fieldDefs) {

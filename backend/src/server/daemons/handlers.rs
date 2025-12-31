@@ -1,7 +1,9 @@
+use crate::server::auth::middleware::permissions::RequireMember;
 use crate::server::billing::types::base::BillingPlan;
 use crate::server::daemons::r#impl::api::DaemonHeartbeatPayload;
 use crate::server::shared::events::types::TelemetryOperation;
 use crate::server::shared::services::traits::CrudService;
+use crate::server::shared::storage::filter::EntityFilter;
 use crate::server::shared::storage::traits::StorableEntity;
 use crate::server::shared::types::api::ApiErrorResponse;
 use crate::server::{
@@ -10,9 +12,10 @@ use crate::server::{
     daemons::r#impl::{
         api::{
             DaemonCapabilities, DaemonRegistrationRequest, DaemonRegistrationResponse,
-            DiscoveryUpdatePayload,
+            DaemonResponse, DaemonStartupRequest, DiscoveryUpdatePayload, ServerCapabilities,
         },
         base::{Daemon, DaemonBase},
+        version::DaemonVersionPolicy,
     },
     discovery::r#impl::{
         base::{Discovery, DiscoveryBase},
@@ -40,22 +43,100 @@ use uuid::Uuid;
 // Generated handlers for operations that use generic CRUD logic
 mod generated {
     use super::*;
-    crate::crud_get_all_handler!(Daemon, "daemons", "daemon");
-    crate::crud_get_by_id_handler!(Daemon, "daemons", "daemon");
     crate::crud_delete_handler!(Daemon, "daemons", "daemon");
     crate::crud_bulk_delete_handler!(Daemon, "daemons");
 }
 
 pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
     OpenApiRouter::new()
-        .routes(routes!(generated::get_all))
-        .routes(routes!(generated::get_by_id, generated::delete))
+        .routes(routes!(get_all))
+        .routes(routes!(get_by_id, generated::delete))
         .routes(routes!(generated::bulk_delete))
         // Daemon-only endpoints (internal API - hidden from public docs)
         .routes(routes!(register_daemon))
+        .routes(routes!(daemon_startup))
         .routes(routes!(receive_heartbeat))
         .routes(routes!(update_capabilities))
         .routes(routes!(receive_work_request))
+}
+
+/// Get all daemons
+///
+/// Returns all daemons accessible to the user with computed version status.
+#[utoipa::path(
+    get,
+    path = "",
+    tag = "daemons",
+    operation_id = "get_daemons",
+    summary = "Get all daemons",
+    responses(
+        (status = 200, description = "List of daemons", body = ApiResponse<Vec<DaemonResponse>>),
+    ),
+    security(("session" = []))
+)]
+async fn get_all(
+    State(state): State<Arc<AppState>>,
+    RequireMember(user): RequireMember,
+) -> ApiResult<Json<ApiResponse<Vec<DaemonResponse>>>> {
+    let filter = EntityFilter::unfiltered().network_ids(&user.network_ids);
+    let daemons = state.services.daemon_service.get_all(filter).await?;
+
+    let policy = DaemonVersionPolicy::default();
+    let responses: Vec<DaemonResponse> = daemons
+        .into_iter()
+        .map(|d| {
+            let version_status = policy.evaluate(d.base.version.as_ref());
+            DaemonResponse {
+                id: d.id,
+                created_at: d.created_at,
+                updated_at: d.updated_at,
+                base: d.base,
+                version_status,
+            }
+        })
+        .collect();
+
+    Ok(Json(ApiResponse::success(responses)))
+}
+
+/// Get daemon by ID
+///
+/// Returns a specific daemon with computed version status.
+#[utoipa::path(
+    get,
+    path = "/{id}",
+    tag = "daemons",
+    operation_id = "get_daemon_by_id",
+    summary = "Get daemon by ID",
+    params(("id" = Uuid, Path, description = "Daemon ID")),
+    responses(
+        (status = 200, description = "Daemon found", body = ApiResponse<DaemonResponse>),
+        (status = 404, description = "Daemon not found", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+async fn get_by_id(
+    State(state): State<Arc<AppState>>,
+    RequireMember(_user): RequireMember,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ApiResponse<DaemonResponse>>> {
+    let daemon = state
+        .services
+        .daemon_service
+        .get_by_id(&id)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("Daemon '{}' not found", id)))?;
+
+    let policy = DaemonVersionPolicy::default();
+    let version_status = policy.evaluate(daemon.base.version.as_ref());
+
+    Ok(Json(ApiResponse::success(DaemonResponse {
+        id: daemon.id,
+        created_at: daemon.created_at,
+        updated_at: daemon.updated_at,
+        base: daemon.base,
+        version_status,
+    })))
 }
 
 const DAILY_MIDNIGHT_CRON: &str = "0 0 0 * * *";
@@ -105,6 +186,23 @@ async fn register_daemon(
 
     tracing::info!("{:?}", request);
 
+    // Parse version early for use in server_capabilities
+    let daemon_version = request
+        .version
+        .as_ref()
+        .and_then(|v| semver::Version::parse(v).ok());
+
+    // Compute server_capabilities if version was provided
+    let policy = DaemonVersionPolicy::default();
+    let server_capabilities = daemon_version.as_ref().map(|v| {
+        let status = policy.evaluate(Some(v));
+        ServerCapabilities {
+            server_version: policy.latest.clone(),
+            minimum_daemon_version: policy.minimum_supported.clone(),
+            deprecation_warnings: status.warnings,
+        }
+    });
+
     // Check if daemon already exists (re-registration scenario)
     // This handles cases where a previous registration partially succeeded
     if let Some(mut existing_daemon) = service.get_by_id(&request.daemon_id).await? {
@@ -120,6 +218,9 @@ async fn register_daemon(
         existing_daemon.base.last_seen = Utc::now();
         existing_daemon.base.mode = request.mode;
         existing_daemon.base.name = request.name;
+        if let Some(v) = daemon_version.clone() {
+            existing_daemon.base.version = Some(v);
+        }
 
         let updated_daemon = service
             .update(&mut existing_daemon, auth_daemon.into())
@@ -130,6 +231,7 @@ async fn register_daemon(
         return Ok(Json(ApiResponse::success(DaemonRegistrationResponse {
             daemon: updated_daemon,
             host_id: existing_daemon.base.host_id,
+            server_capabilities,
         })));
     }
 
@@ -151,6 +253,20 @@ async fn register_daemon(
         .discover_host(dummy_host, vec![], vec![], vec![], auth_daemon.into())
         .await?;
 
+    // If user_id is nil (old daemon), fall back to org owner
+    let user_id = if request.user_id.is_nil() {
+        state
+            .services
+            .user_service
+            .get_organization_owners(&org.id)
+            .await?
+            .first()
+            .map(|u| u.id)
+            .unwrap_or(request.user_id)
+    } else {
+        request.user_id
+    };
+
     let mut daemon = Daemon::new(DaemonBase {
         host_id: host_response.id,
         network_id: request.network_id,
@@ -160,6 +276,8 @@ async fn register_daemon(
         mode: request.mode,
         name: request.name,
         tags: Vec::new(),
+        version: daemon_version,
+        user_id,
     });
 
     daemon.id = request.daemon_id;
@@ -289,6 +407,61 @@ async fn register_daemon(
     Ok(Json(ApiResponse::success(DaemonRegistrationResponse {
         daemon: registered_daemon,
         host_id: host_response.id,
+        server_capabilities,
+    })))
+}
+
+/// Daemon startup handshake
+///
+/// Internal endpoint for daemons to report their version on startup.
+/// Updates the daemon's version and last_seen timestamp, returns server capabilities.
+#[utoipa::path(
+    post,
+    path = "/{id}/startup",
+    tags = ["daemons", "internal"],
+    params(("id" = Uuid, Path, description = "Daemon ID")),
+    request_body = DaemonStartupRequest,
+    responses(
+        (status = 200, description = "Startup acknowledged", body = ApiResponse<ServerCapabilities>),
+        (status = 404, description = "Daemon not found", body = ApiErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+async fn daemon_startup(
+    State(state): State<Arc<AppState>>,
+    auth_daemon: AuthenticatedDaemon,
+    Path(id): Path<Uuid>,
+    Json(request): Json<DaemonStartupRequest>,
+) -> ApiResult<Json<ApiResponse<ServerCapabilities>>> {
+    let service = &state.services.daemon_service;
+
+    let mut daemon = service
+        .get_by_id(&id)
+        .await
+        .map_err(|e| ApiError::internal_error(&format!("Failed to get daemon: {}", e)))?
+        .ok_or_else(|| ApiError::not_found(format!("Daemon '{}' not found", id)))?;
+
+    daemon.base.version = Some(request.daemon_version.clone());
+    daemon.base.last_seen = Utc::now();
+
+    service
+        .update(&mut daemon, auth_daemon.into())
+        .await
+        .map_err(|e| ApiError::internal_error(&format!("Failed to update daemon: {}", e)))?;
+
+    tracing::info!(
+        daemon_id = %id,
+        version = %request.daemon_version,
+        "Daemon startup"
+    );
+
+    let policy = DaemonVersionPolicy::default();
+    let status = policy.evaluate(Some(&request.daemon_version));
+
+    Ok(Json(ApiResponse::success(ServerCapabilities {
+        server_version: policy.latest.clone(),
+        minimum_daemon_version: policy.minimum_supported.clone(),
+        deprecation_warnings: status.warnings,
     })))
 }
 

@@ -11,6 +11,7 @@
 	import { useNetworksQuery } from '$lib/features/networks/queries';
 	import { useHostsQuery } from '$lib/features/hosts/queries';
 	import { useSubnetsQuery } from '$lib/features/subnets/queries';
+	import type { TagProps } from '$lib/shared/components/data/types';
 
 	// Queries
 	const tagsQuery = useTagsQuery();
@@ -41,11 +42,27 @@
 	let host = $derived(hostsData.find((h) => h.id === daemon.host_id) ?? null);
 	let daemonIsRunningDiscovery = $derived(getDaemonIsRunningDiscovery(daemon.id, $sessions));
 
+	// Compute status tag based on version_status
+	let status: TagProps | null = $derived.by(() => {
+		switch (daemon.version_status.status) {
+			case 'Deprecated':
+				return { label: 'Deprecated', color: toColor('red') };
+			case 'Outdated':
+				return { label: 'Outdated', color: toColor('yellow') };
+			default:
+				return null;
+		}
+	});
+
+	// Get version string from version_status
+	let version = $derived(daemon.version_status.version ?? 'Unknown');
+
 	// Build card data
 	let cardData = $derived({
 		title: daemon.name,
 		iconColor: entities.getColorHelper('Daemon').icon,
 		Icon: entities.getIconComponent('Daemon'),
+		status,
 		fields: [
 			{
 				label: 'Network',
@@ -54,6 +71,10 @@
 			{
 				label: 'Host',
 				value: host ? host.name : 'Unknown Host'
+			},
+			{
+				label: 'Version',
+				value: version
 			},
 			{
 				label: 'Created',

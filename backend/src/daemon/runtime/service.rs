@@ -5,8 +5,9 @@ use crate::daemon::utils::base::DaemonUtils;
 use crate::daemon::utils::base::{PlatformDaemonUtils, create_system_utils};
 use crate::server::daemons::r#impl::api::{
     DaemonCapabilities, DaemonHeartbeatPayload, DaemonRegistrationRequest,
-    DaemonRegistrationResponse, DiscoveryUpdatePayload,
+    DaemonRegistrationResponse, DaemonStartupRequest, DiscoveryUpdatePayload, ServerCapabilities,
 };
+use crate::server::daemons::r#impl::version::DeprecationSeverity;
 use anyhow::Result;
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -190,8 +191,18 @@ impl DaemonRuntimeService {
                 daemon_id = %daemon_id,
                 network_id = %network_id,
                 has_docker = %has_docker_client,
-                "Already registered"
+                "Already registered, announcing startup"
             );
+
+            // Announce startup to report version and get server capabilities
+            if let Err(e) = self.announce_startup(daemon_id).await {
+                tracing::warn!(
+                    daemon_id = %daemon_id,
+                    error = %e,
+                    "Failed to announce startup - continuing anyway"
+                );
+            }
+
             return Ok(());
         }
 
@@ -243,6 +254,8 @@ impl DaemonRuntimeService {
 
         let url = self.get_daemon_url().await?;
 
+        let user_id = config.get_user_id().await?.unwrap_or(Uuid::nil());
+
         let registration_request = DaemonRegistrationRequest {
             daemon_id,
             network_id,
@@ -253,6 +266,8 @@ impl DaemonRuntimeService {
                 has_docker_socket,
                 interfaced_subnet_ids: Vec::new(),
             },
+            user_id,
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
         };
 
         tracing::info!(daemon_id = %daemon_id, "Sending register request");
@@ -331,6 +346,81 @@ impl DaemonRuntimeService {
 
                     // For other errors, fail immediately
                     return Err(e);
+                }
+            }
+        }
+    }
+
+    /// Announce daemon startup to the server.
+    ///
+    /// Called on every daemon boot (not just first registration) to:
+    /// - Report daemon version to server
+    /// - Receive server capabilities and deprecation warnings
+    /// - Update last_seen timestamp
+    pub async fn announce_startup(&self, daemon_id: Uuid) -> Result<()> {
+        let path = format!("/api/daemons/{}/startup", daemon_id);
+
+        let request = DaemonStartupRequest {
+            daemon_version: semver::Version::parse(env!("CARGO_PKG_VERSION"))?,
+        };
+
+        let result: Result<ServerCapabilities, _> = self
+            .api_client
+            .post(&path, &request, "Startup announcement failed")
+            .await;
+
+        match result {
+            Ok(capabilities) => {
+                tracing::info!(
+                    daemon_id = %daemon_id,
+                    server_version = %capabilities.server_version,
+                    "Startup announced to server"
+                );
+
+                // Log any deprecation warnings from the server
+                self.log_deprecation_warnings(&capabilities);
+
+                Ok(())
+            }
+            Err(e) => {
+                tracing::warn!(
+                    daemon_id = %daemon_id,
+                    error = %e,
+                    "Failed to announce startup to server"
+                );
+                Err(e)
+            }
+        }
+    }
+
+    /// Log deprecation warnings received from the server.
+    fn log_deprecation_warnings(&self, capabilities: &ServerCapabilities) {
+        for warning in &capabilities.deprecation_warnings {
+            match warning.severity {
+                DeprecationSeverity::Critical => {
+                    tracing::error!(
+                        "DEPRECATION CRITICAL: {}{}",
+                        warning.message,
+                        warning
+                            .sunset_date
+                            .as_ref()
+                            .map(|d| format!(" (sunset: {})", d))
+                            .unwrap_or_default()
+                    );
+                }
+                DeprecationSeverity::Warning => {
+                    tracing::warn!(
+                        "DEPRECATION WARNING: {}{}",
+                        warning.message,
+                        warning
+                            .sunset_date
+                            .as_ref()
+                            .map(|d| format!(" (sunset: {})", d))
+                            .unwrap_or_default()
+                    );
+                }
+                DeprecationSeverity::Info => {
+                    tracing::info!("{}", warning.message);
                 }
             }
         }

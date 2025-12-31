@@ -15,6 +15,7 @@ use crate::server::{
     hosts::r#impl::{
         api::{CreateHostRequest, DiscoveryHostRequest, HostResponse, UpdateHostRequest},
         base::Host,
+        legacy::{HostCreateRequestBody, HostCreateResponse, LegacyHostWithServicesResponse},
     },
     shared::types::api::{ApiError, ApiResponse, ApiResult},
 };
@@ -111,6 +112,13 @@ async fn get_host_by_id(
 /// - Tags must exist and belong to your organization
 /// - Duplicate tag UUIDs are automatically deduplicated
 /// - Invalid or cross-organization tag UUIDs return a 400 error
+///
+/// ### Legacy Format (Daemon Backwards Compatibility)
+///
+/// This endpoint also accepts the legacy `HostWithServicesRequest` format
+/// from old daemons. Legacy requests are automatically detected and
+/// transformed to the new format. Legacy support will be removed in a
+/// future release.
 #[utoipa::path(
     post,
     path = "",
@@ -130,57 +138,109 @@ async fn create_host(
         network_ids,
         ..
     }: MemberOrDaemon,
-    Json(mut request): Json<CreateHostRequest>,
-) -> ApiResult<Json<ApiResponse<HostResponse>>> {
-    // Validate request (name length, etc.)
-    request
-        .validate()
-        .map_err(|e| ApiError::bad_request(&e.to_string()))?;
-
+    Json(request): Json<HostCreateRequestBody>,
+) -> ApiResult<Json<ApiResponse<HostCreateResponse>>> {
     let host_service = &state.services.host_service;
 
-    // Validate user has access to the network
-    validate_network_access(Some(request.network_id), &network_ids, "create")?;
+    match (request, &entity) {
+        // New format - standard flow
+        (HostCreateRequestBody::New(mut request), _) => {
+            // Validate request (name length, etc.)
+            request
+                .validate()
+                .map_err(|e| ApiError::bad_request(&e.to_string()))?;
 
-    // Validate network_id exists
-    let _network = state
-        .services
-        .network_service
-        .get_by_id(&request.network_id)
-        .await?
-        .ok_or_else(|| {
-            ApiError::bad_request(&format!("Network {} not found", request.network_id))
-        })?;
+            // Validate user has access to the network
+            validate_network_access(Some(request.network_id), &network_ids, "create")?;
 
-    // Check interface subnets are on the same network
-    for interface in &request.interfaces {
-        if let Some(subnet) = state
-            .services
-            .subnet_service
-            .get_by_id(&interface.subnet_id)
-            .await?
-            && subnet.base.network_id != request.network_id
-        {
-            return Err(ApiError::bad_request(&format!(
-                "Host is on network {}, cannot have an interface with a subnet \"{}\" which is on network {}.",
-                request.network_id, subnet.base.name, subnet.base.network_id
-            )));
-        }
-    }
+            // Validate network_id exists
+            let _network = state
+                .services
+                .network_service
+                .get_by_id(&request.network_id)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::bad_request(&format!("Network {} not found", request.network_id))
+                })?;
 
-    // Validate and dedupe tags (only for users, daemons don't use tags)
-    if let AuthenticatedEntity::User {
-        organization_id, ..
-    } = &entity
-    {
-        request.tags =
-            validate_and_dedupe_tags(request.tags, *organization_id, &state.services.tag_service)
+            // Check interface subnets are on the same network
+            for interface in &request.interfaces {
+                if let Some(subnet) = state
+                    .services
+                    .subnet_service
+                    .get_by_id(&interface.subnet_id)
+                    .await?
+                    && subnet.base.network_id != request.network_id
+                {
+                    return Err(ApiError::bad_request(&format!(
+                        "Host is on network {}, cannot have an interface with a subnet \"{}\" which is on network {}.",
+                        request.network_id, subnet.base.name, subnet.base.network_id
+                    )));
+                }
+            }
+
+            // Validate and dedupe tags (only for users, daemons don't use tags)
+            if let AuthenticatedEntity::User {
+                organization_id, ..
+            } = &entity
+            {
+                request.tags = validate_and_dedupe_tags(
+                    request.tags,
+                    *organization_id,
+                    &state.services.tag_service,
+                )
                 .await?;
+            }
+
+            let host_response = host_service.create_from_request(request, entity).await?;
+
+            Ok(Json(ApiResponse::success(HostCreateResponse::New(
+                host_response,
+            ))))
+        }
+
+        // Legacy format from daemon - transform and process
+        (
+            HostCreateRequestBody::Legacy(legacy_request),
+            AuthenticatedEntity::Daemon { daemon_id, .. },
+        ) => {
+            tracing::warn!(
+                daemon_id = %daemon_id,
+                "Legacy daemon request to POST /api/hosts - daemon should be updated"
+            );
+
+            let discovery_request = legacy_request.into_discovery_request();
+
+            // Validate daemon has access to the network
+            validate_network_access(
+                Some(discovery_request.host.base.network_id),
+                &network_ids,
+                "create",
+            )?;
+
+            let DiscoveryHostRequest {
+                host,
+                interfaces,
+                ports,
+                services,
+            } = discovery_request;
+
+            let host_response = host_service
+                .discover_host(host, interfaces, ports, services, entity)
+                .await?;
+
+            let legacy_response = LegacyHostWithServicesResponse::from_host_response(host_response);
+
+            Ok(Json(ApiResponse::success(HostCreateResponse::Legacy(
+                legacy_response,
+            ))))
+        }
+
+        // Legacy format from non-daemon (user) - reject
+        (HostCreateRequestBody::Legacy(_), _) => Err(ApiError::bad_request(
+            "Invalid request format. Please use the CreateHostRequest format.",
+        )),
     }
-
-    let host_response = host_service.create_from_request(request, entity).await?;
-
-    Ok(Json(ApiResponse::success(host_response)))
 }
 
 /// Update a host

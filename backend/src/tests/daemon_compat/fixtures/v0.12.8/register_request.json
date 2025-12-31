@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "method": "POST",
+    "path_template": "/api/daemons/register",
+    "captured_at": "2025-01-15T10:30:00Z",
+    "daemon_version": "0.12.8"
+  },
+  "payload": {
+    "daemon_id": "550e8400-e29b-41d4-a716-446655440000",
+    "network_id": "660e8400-e29b-41d4-a716-446655440000",
+    "url": "http://192.168.1.50:60073",
+    "name": "scanopy-daemon",
+    "mode": "Push",
+    "capabilities": {
+      "has_docker_socket": true,
+      "interfaced_subnet_ids": []
+    },
+    "user_id": "770e8400-e29b-41d4-a716-446655440000",
+    "version": "0.12.8"
+  }
+}

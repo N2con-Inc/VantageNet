@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "method": "POST",
+    "path_template": "/api/hosts",
+    "captured_at": "2025-01-15T10:30:00Z",
+    "daemon_version": "0.12.8"
+  },
+  "payload": {
+    "host": {
+      "id": "880e8400-e29b-41d4-a716-446655440000",
+      "created_at": "2025-01-15T10:30:00Z",
+      "updated_at": "2025-01-15T10:30:00Z",
+      "name": "test-host",
+      "network_id": "660e8400-e29b-41d4-a716-446655440000",
+      "hostname": "test-host.local",
+      "description": null,
+      "source": {"type": "Discovery", "metadata": []},
+      "virtualization": null,
+      "hidden": false,
+      "tags": []
+    },
+    "interfaces": [],
+    "ports": [],
+    "services": []
+  }
+}

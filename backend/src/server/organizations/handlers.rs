@@ -195,7 +195,7 @@ pub async fn populate_demo_data(
     reset_organization_data(&state, &id, auth.clone()).await?;
 
     // Generate demo data
-    let demo_data = DemoData::generate(id);
+    let demo_data = DemoData::generate(id, user.user_id);
 
     // Insert entities in dependency order:
     // 1. Tags (no dependencies) - keep track of created tags for group generation

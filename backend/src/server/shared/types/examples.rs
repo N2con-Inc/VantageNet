@@ -263,6 +263,8 @@ pub fn daemon() -> Daemon {
             last_seen: example_timestamp(),
             name: "home-daemon".to_string(),
             tags: vec![],
+            version: None,
+            user_id: ids::USER,
         },
     }
 }
