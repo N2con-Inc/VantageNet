@@ -99,6 +99,10 @@
 			pushError('Name is required');
 			return;
 		}
+		if (!formData.network_ids?.length) {
+			pushError('At least one network must be selected');
+			return;
+		}
 
 		loading = true;
 		try {

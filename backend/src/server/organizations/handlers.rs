@@ -271,7 +271,7 @@ pub async fn populate_demo_data(
         state
             .services
             .daemon_api_key_service
-            .create(api_key, entity.clone())
+            .create(api_key, auth.clone())
             .await?;
     }
 

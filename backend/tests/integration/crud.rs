@@ -3,6 +3,7 @@ use cidr::{IpCidr, Ipv4Cidr};
 use reqwest::StatusCode;
 use scanopy::server::daemon_api_keys::r#impl::base::DaemonApiKey;
 use scanopy::server::daemon_api_keys::r#impl::base::DaemonApiKeyBase;
+use scanopy::server::daemon_api_keys::r#impl::base::DaemonApiKeyBase;
 use scanopy::server::groups::r#impl::base::{Group, GroupBase};
 use scanopy::server::groups::r#impl::types::GroupType;
 use scanopy::server::hosts::r#impl::api::{CreateHostRequest, HostResponse, UpdateHostRequest};
