@@ -1,0 +1,176 @@
+name: Build Debian Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+          - arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust targets
+        run: |
+          rustup target add ${{ matrix.rust_target }}
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v4
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ matrix.rust_target }}-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build Debian package
+        run: |
+          cd backend
+          cargo build \
+            --release \
+            --bin daemon \
+            --target ${{ matrix.rust_target }}
+
+      - name: Package .deb
+        run: |
+          VERSION="0.13.0"
+          ARCH=${{ matrix.arch }}
+          TARGET=${{ matrix.rust_target }}
+          PKG_DIR="package_${ARCH}"
+          BUILD_DIR="$PKG_DIR/build"
+
+          rm -rf "$PKG_DIR"
+          mkdir -p "$BUILD_DIR"
+
+          # Copy binary
+          mkdir -p "$BUILD_DIR/usr/bin"
+          cp "backend/target/$TARGET/release/daemon" "$BUILD_DIR/usr/bin/vantagenet-daemon"
+
+          # Copy systemd service
+          mkdir -p "$BUILD_DIR/lib/systemd/system"
+          cp "packaging/debian/vantagenet-daemon.service" "$BUILD_DIR/lib/systemd/system/"
+
+          # Copy config
+          mkdir -p "$BUILD_DIR/etc/vantagenet"
+          cp "packaging/debian/daemon.toml.example" "$BUILD_DIR/etc/vantagenet/daemon.toml"
+
+          # Copy DEBIAN files
+          mkdir -p "$PKG_DIR/DEBIAN"
+          cp "packaging/debian/control.$ARCH" "$PKG_DIR/DEBIAN/control"
+          cp "packaging/debian/conffiles" "$PKG_DIR/DEBIAN/"
+          cp "packaging/debian/postinst" "$PKG_DIR/DEBIAN/"
+          cp "packaging/debian/prerm" "$PKG_DIR/DEBIAN/"
+
+          # Make scripts executable
+          chmod 755 "$PKG_DIR/DEBIAN/postinst"
+          chmod 755 "$PKG_DIR/DEBIAN/prerm"
+
+          # Calculate installed size
+          du_size=$(du -sk "$BUILD_DIR" | cut -f1)
+          sed -i "s/^Installed-Size:.*/Installed-Size: $du_size/" "$PKG_DIR/DEBIAN/control"
+
+          # Build .deb
+          dpkg-deb --build "$PKG_DIR" "vantagenet-daemon_${VERSION}_${ARCH}.deb"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vantagenet-daemon-${{ matrix.arch }}
+          path: vantagenet-daemon_*.deb
+
+      - name: Generate checksums
+        run: |
+          sha256sum vantagenet-daemon_*.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: SHA256SUMS
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Generate release notes
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## VantageNet Daemon v${{ github.ref_name }}
+
+          Native Linux packages for VantageNet network discovery daemon.
+
+          ### Features
+          - ARP scanning with real MAC address visibility (CAP_NET_RAW)
+          - L2 protocol support (LLDP, CDP in future releases)
+          - TCP/UDP port scanning
+          - SNMP monitoring
+          - Docker container discovery
+          - 200+ service identification patterns
+
+          ### Installation
+
+          \`curl -fsSL https://raw.githubusercontent.com/N2con-Inc/VantageNet/main/scripts/install-daemon.sh | sudo bash\`
+
+          ### Packages
+
+          | Architecture | Package |
+          |--------------|----------|
+          | amd64 (x86_64) | \`vantagenet-daemon_${{ github.ref_name }}_amd64.deb\` |
+          | arm64 (aarch64) | \`vantagenet-daemon_${{ github.ref_name }}_arm64.deb\` |
+
+          ### Security
+
+          The daemon runs with minimal Linux capabilities:
+          - \`CAP_NET_RAW\` - Raw socket access for ARP, LLDP, CDP
+          - \`CAP_NET_ADMIN\` - Network configuration access
+
+          See \`packaging/P0-DELIVERABLES.md\` for full documentation.
+          EOF
+          cat release_notes.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ./artifacts/**/*.deb
+          body_path: release_notes.md
+          draft: false
+          generate_release_notes: false
+          api_key: ${{ secrets.GITHUB_TOKEN }}
