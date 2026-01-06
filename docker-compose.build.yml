@@ -1,0 +1,86 @@
+name: vantagenet
+
+x-vantagenet-env: &vantagenet-env
+  VANTAGENET_LOG_LEVEL: ${VANTAGENET_LOG_LEVEL:-info}
+  VANTAGENET_SERVER_PORT: ${VANTAGENET_SERVER_PORT:-60072}
+  VANTAGENET_DAEMON_PORT: ${VANTAGENET_DAEMON_PORT:-60073}
+
+services:
+  daemon:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.daemon.build
+    container_name: vantagenet-daemon
+    network_mode: host
+    privileged: true
+    restart: unless-stopped
+    ports:
+      - "${VANTAGENET_DAEMON_PORT:-60073}:${VANTAGENET_DAEMON_PORT:-60073}"
+    environment:
+      <<: *vantagenet-env
+      VANTAGENET_SERVER_URL: ${VANTAGENET_SERVER_URL:-http://127.0.0.1:60072}
+      VANTAGENET_PORT: ${VANTAGENET_DAEMON_PORT:-60073}
+      VANTAGENET_BIND_ADDRESS: ${VANTAGENET_BIND_ADDRESS:-0.0.0.0}
+      VANTAGENET_NAME: ${VANTAGENET_NAME:-vantagenet-daemon}
+      VANTAGENET_HEARTBEAT_INTERVAL: ${VANTAGENET_HEARTBEAT_INTERVAL:-30}
+      VANTAGENET_MODE: ${VANTAGENET_MODE:-Push}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:${VANTAGENET_DAEMON_PORT:-60073}/api/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+    volumes:
+      - daemon-config:/root/.config/daemon
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: vantagenet
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - vantagenet
+
+  server:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "${VANTAGENET_SERVER_PORT:-60072}:${VANTAGENET_SERVER_PORT:-60072}"
+    environment:
+      <<: *vantagenet-env
+      VANTAGENET_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/vantagenet
+      VANTAGENET_WEB_EXTERNAL_PATH: /app/static
+      VANTAGENET_PUBLIC_URL: ${VANTAGENET_PUBLIC_URL:-http://localhost:${VANTAGENET_SERVER_PORT:-60072}}
+      VANTAGENET_INTEGRATED_DAEMON_URL: http://172.17.0.1:${VANTAGENET_DAEMON_PORT:-60073}
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      daemon:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vantagenet
+
+volumes:
+  postgres_data:
+  daemon-config:
+
+networks:
+  vantagenet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.0.0/16
+          gateway: 172.31.0.1
