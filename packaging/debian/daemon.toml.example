@@ -1,0 +1,48 @@
+# VantageNet Daemon Configuration
+# Place this file at /etc/vantagenet/daemon.toml
+
+# VantageNet server URL
+# Example: http://your-server:60072
+server_url = ""
+
+# Network ID to join (optional - daemon can register via UI)
+# network_id = "uuid-here"
+
+# Daemon mode
+# "Push" = Daemon pushes heartbeat to server (requires port forwarding)
+# "Pull" = Server pulls work from daemon (no port forwarding needed)
+mode = "Push"
+
+# Port for daemon to listen on
+port = 60073
+
+# IP address to bind daemon to
+bind_address = "0.0.0.0"
+
+# Daemon name (optional, auto-generated if not set)
+# name = "my-network-daemon"
+
+# Logging level: trace, debug, info, warn, error
+log_level = "info"
+
+# Heartbeat interval (seconds) - how often daemon reports to server
+heartbeat_interval = 30
+
+# Max parallel host scans
+# Higher = faster scans but more resource usage
+concurrent_scans = 15
+
+# Public URL where server can reach daemon (Push mode only)
+# Defaults to auto-detected IP + port if not set
+# daemon_url = "http://my-host:60073"
+
+# Allow self-signed certificates for daemon->server connection
+allow_self_signed_certs = false
+
+# Docker proxy (optional) - if daemon needs to connect to Docker via proxy
+# docker_proxy = "http://proxy-host:port"
+
+# Docker proxy SSL settings (if using HTTPS docker proxy)
+# docker_proxy_ssl_cert = "/path/to/cert.pem"
+# docker_proxy_ssl_key = "/path/to/key.pem"
+# docker_proxy_ssl_chain = "/path/to/chain.pem"

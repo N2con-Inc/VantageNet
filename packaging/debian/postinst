@@ -1,0 +1,21 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        # Reload systemd to recognize new service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+        fi
+
+        # Enable but don't start daemon - let user configure first
+        echo "VantageNet daemon installed but not started."
+        echo "Please configure /etc/vantagenet/daemon.toml before starting:"
+        echo ""
+        echo "  1. Edit /etc/vantagenet/daemon.toml"
+        echo "  2. Set your server_url and network_id"
+        echo "  3. Run: systemctl enable --now vantagenet-daemon"
+        ;;
+esac
+
+exit 0

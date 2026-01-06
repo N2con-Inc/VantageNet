@@ -1,0 +1,26 @@
+Package: vantagenet-daemon
+Version: 0.13.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: N2con Inc <support@vantagenet.io>
+Homepage: https://github.com/N2con-Inc/VantageNet
+Depends: libc6, libssl3
+Recommends: postgresql-client
+Conflicts: scanopy-daemon
+Built-Using: rustc (>= 1.82)
+Description: VantageNet network discovery daemon
+ VantageNet is an MSP-focused network discovery and monitoring platform.
+ The daemon performs automated discovery of hosts, services, and their
+ relationships across your network infrastructure.
+ .
+ Key features:
+  - ARP scanning for MAC address discovery
+  - TCP/UDP port scanning
+  - Service identification (200+ patterns)
+  - SNMP monitoring
+  - Docker container discovery
+  - Layer 2 protocol support (LLDP, CDP in future)
+ .
+ This package installs the native daemon which runs directly on the host
+ (not in Docker) to enable proper Layer 2 visibility and packet capture.
