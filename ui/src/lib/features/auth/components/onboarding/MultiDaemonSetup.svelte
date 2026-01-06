@@ -276,11 +276,13 @@
 		</div>
 	</div>
 
-	<svelte:fragment slot="footer">
-		<div class="flex justify-end">
-			<button type="button" class="btn-primary" disabled={!allConfigured} onclick={onComplete}>
-				{allConfigured ? 'Continue to Registration' : 'Configure remaining daemons to continue'}
-			</button>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex justify-end">
+				<button type="button" class="btn-primary" disabled={!allConfigured} onclick={onComplete}>
+					{allConfigured ? 'Continue to Registration' : 'Configure remaining daemons to continue'}
+				</button>
+			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

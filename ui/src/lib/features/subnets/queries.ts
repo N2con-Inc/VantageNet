@@ -14,7 +14,7 @@ export function useSubnetsQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.subnets.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/subnets');
+			const { data } = await apiClient.GET('/api/v1/subnets');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch subnets');
 			}
@@ -31,7 +31,7 @@ export function useCreateSubnetMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (subnet: Subnet) => {
-			const { data } = await apiClient.POST('/api/subnets', { body: subnet });
+			const { data } = await apiClient.POST('/api/v1/subnets', { body: subnet });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create subnet');
 			}
@@ -53,7 +53,7 @@ export function useUpdateSubnetMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (subnet: Subnet) => {
-			const { data } = await apiClient.PUT('/api/subnets/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/subnets/{id}', {
 				params: { path: { id: subnet.id } },
 				body: subnet
 			});
@@ -79,7 +79,7 @@ export function useDeleteSubnetMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/subnets/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/subnets/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -104,7 +104,7 @@ export function useBulkDeleteSubnetsMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/subnets/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/subnets/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete subnets');
 			}

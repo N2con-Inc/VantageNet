@@ -1,23 +1,13 @@
 <script lang="ts">
 	import { page } from '$app/stores';
-	import AuthSettingsModal from '$lib/features/auth/components/AuthSettingsModal.svelte';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
-	import BillingSettingsModal from '$lib/features/billing/BillingSettingsModal.svelte';
 	import { useOrganizationQuery } from '$lib/features/organizations/queries';
 	import { isBillingPlanActive } from '$lib/features/organizations/types';
+	import SettingsModal from '$lib/features/settings/SettingsModal.svelte';
 	import SupportModal from '$lib/features/support/SupportModal.svelte';
 	import { entities } from '$lib/shared/stores/metadata';
 	import type { IconComponent } from '$lib/shared/utils/types';
-	import {
-		Menu,
-		ChevronDown,
-		History,
-		Calendar,
-		User,
-		LifeBuoy,
-		CreditCard,
-		Building
-	} from 'lucide-svelte';
+	import { Menu, ChevronDown, History, Calendar, Settings, LifeBuoy } from 'lucide-svelte';
 	import { onMount } from 'svelte';
 	import type { Component } from 'svelte';
 	import type { UserOrgPermissions } from '$lib/features/users/types';
@@ -33,9 +23,9 @@
 	import HostTab from '$lib/features/hosts/components/HostTab.svelte';
 	import ServiceTab from '$lib/features/services/components/ServiceTab.svelte';
 	import DaemonTab from '$lib/features/daemons/components/DaemonTab.svelte';
-	import ApiKeyTab from '$lib/features/api_keys/components/ApiKeyTab.svelte';
+	import ApiKeyTab from '$lib/features/daemon_api_keys/components/ApiKeyTab.svelte';
 	import UserTab from '$lib/features/users/components/UserTab.svelte';
-	import OrganizationSettingsModal from '$lib/features/organizations/OrganizationSettingsModal.svelte';
+	import UserApiKeyTab from '$lib/features/user_api_keys/components/UserApiKeyTab.svelte';
 	import TagTab from '$lib/features/tags/components/TagTab.svelte';
 	import Tag from '$lib/shared/components/data/Tag.svelte';
 	import ShareTab from '$lib/features/shares/components/ShareTab.svelte';
@@ -44,12 +34,12 @@
 		activeTab = $bindable('topology'),
 		collapsed = $bindable(false),
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		allTabs = $bindable<Array<{ id: string; component: any }>>([])
+		allTabs = $bindable<Array<{ id: string; component: any; isReadOnly: boolean }>>([])
 	}: {
 		activeTab?: string;
 		collapsed?: boolean;
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		allTabs?: Array<{ id: string; component: any }>;
+		allTabs?: Array<{ id: string; component: any; isReadOnly: boolean }>;
 	} = $props();
 
 	// TanStack Query for current user and organization
@@ -63,11 +53,10 @@
 	let userPermissions = $derived(currentUser?.permissions);
 	let isBillingEnabled = $derived(organization ? isBillingPlanActive(organization) : false);
 	let isDemoOrg = $derived(organization?.plan?.type === 'Demo');
+	let isReadOnly = $derived(userPermissions === 'Viewer');
 
-	let showAuthSettings = $state(false);
+	let showSettings = $state(false);
 	let showSupport = $state(false);
-	let showBilling = $state(false);
-	let showOrgSettings = $state(false);
 
 	interface NavItem {
 		id: string;
@@ -76,9 +65,10 @@
 		component?: Component;
 		position?: 'main' | 'bottom';
 		onClick?: () => void | Promise<void>;
-		requiredPermissions?: UserOrgPermissions[]; // Which permissions can see this item
+		requiredPermissions?: UserOrgPermissions[]; // Which permissions can see this item. If empty, Viewer+ is allowed.
 		requiresBilling?: boolean; // Whether this requires billing to be enabled
 		hideInDemo?: boolean; // Whether to hide this in demo mode
+		children?: NavItem[]; // Nested child items (displayed indented under parent)
 	}
 
 	interface NavSection {
@@ -108,8 +98,7 @@
 					id: 'shares',
 					label: 'Sharing',
 					icon: entities.getIconComponent('Share'),
-					component: ShareTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
+					component: ShareTab
 				}
 			]
 		},
@@ -121,78 +110,77 @@
 					id: 'discovery-sessions',
 					label: 'Sessions',
 					icon: entities.getIconComponent('Discovery'),
-					component: DiscoverySessionTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
+					component: DiscoverySessionTab
 				},
 				{
 					id: 'discovery-scheduled',
 					label: 'Scheduled',
 					icon: Calendar as IconComponent,
-					component: DiscoveryScheduledTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
+					component: DiscoveryScheduledTab
 				},
 				{
 					id: 'discovery-history',
 					label: 'History',
 					icon: History as IconComponent,
-					component: DiscoveryHistoryTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
-				}
-			]
-		},
-		{
-			id: 'manage',
-			label: 'Manage',
-			items: [
-				{
-					id: 'networks',
-					label: 'Networks',
-					icon: entities.getIconComponent('Network'),
-					component: NetworksTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
-				},
-				{
-					id: 'subnets',
-					label: 'Subnets',
-					icon: entities.getIconComponent('Subnet'),
-					component: SubnetTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
-				},
-				{
-					id: 'groups',
-					label: 'Groups',
-					icon: entities.getIconComponent('Group'),
-					component: GroupTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
-				},
-				{
-					id: 'hosts',
-					label: 'Hosts',
-					icon: entities.getIconComponent('Host'),
-					component: HostTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
-				},
-				{
-					id: 'services',
-					label: 'Services',
-					icon: entities.getIconComponent('Service'),
-					component: ServiceTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
+					component: DiscoveryHistoryTab
 				},
 				{
 					id: 'daemons',
 					label: 'Daemons',
 					icon: entities.getIconComponent('Daemon'),
 					component: DaemonTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
+					children: [
+						{
+							id: 'daemon-api-keys',
+							label: 'Api Keys',
+							icon: entities.getIconComponent('DaemonApiKey'),
+							component: ApiKeyTab,
+							requiredPermissions: ['Member', 'Admin', 'Owner']
+						}
+					]
+				}
+			]
+		},
+		{
+			id: 'assets',
+			label: 'Assets',
+			items: [
+				{
+					id: 'networks',
+					label: 'Networks',
+					icon: entities.getIconComponent('Network'),
+					component: NetworksTab
 				},
 				{
-					id: 'api-keys',
-					label: 'API Keys',
-					icon: entities.getIconComponent('ApiKey'),
-					component: ApiKeyTab,
-					requiredPermissions: ['Admin', 'Owner']
+					id: 'subnets',
+					label: 'Subnets',
+					icon: entities.getIconComponent('Subnet'),
+					component: SubnetTab
 				},
+				{
+					id: 'groups',
+					label: 'Groups',
+					icon: entities.getIconComponent('Group'),
+					component: GroupTab
+				},
+				{
+					id: 'hosts',
+					label: 'Hosts',
+					icon: entities.getIconComponent('Host'),
+					component: HostTab
+				},
+				{
+					id: 'services',
+					label: 'Services',
+					icon: entities.getIconComponent('Service'),
+					component: ServiceTab
+				}
+			]
+		},
+		{
+			id: 'platform',
+			label: 'Platform',
+			items: [
 				{
 					id: 'users',
 					label: 'Users',
@@ -201,47 +189,28 @@
 					requiredPermissions: ['Admin', 'Owner']
 				},
 				{
+					id: 'api-keys',
+					label: 'API Keys',
+					icon: entities.getIconComponent('UserApiKey'),
+					component: UserApiKeyTab,
+					requiredPermissions: ['Member', 'Admin', 'Owner']
+				},
+				{
 					id: 'tags',
 					label: 'Tags',
 					icon: entities.getIconComponent('Tag'),
-					component: TagTab,
-					requiredPermissions: ['Member', 'Admin', 'Owner']
+					component: TagTab
 				}
 			]
 		},
 		{
 			id: 'settings',
 			label: 'Settings',
-			items: [
-				{
-					id: 'account',
-					label: 'Account',
-					icon: User as IconComponent,
-					onClick: async () => {
-						showAuthSettings = true;
-					},
-					hideInDemo: true
-				},
-				{
-					id: 'organization',
-					label: 'Organization',
-					icon: Building,
-					requiredPermissions: ['Owner'],
-					onClick: async () => {
-						showOrgSettings = true;
-					}
-				},
-				{
-					id: 'billing',
-					label: 'Billing',
-					icon: CreditCard as IconComponent,
-					onClick: async () => {
-						showBilling = true;
-					},
-					requiredPermissions: ['Owner'],
-					requiresBilling: true
-				}
-			]
+			icon: Settings as IconComponent,
+			position: 'bottom',
+			onClick: async () => {
+				showSettings = true;
+			}
 		},
 		{
 			id: 'support',
@@ -259,21 +228,30 @@
 	// instantiating components the user doesn't have permission to access
 	$effect(() => {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const tabs: Array<{ id: string; component: any }> = [];
+		const tabs: Array<{ id: string; component: any; isReadOnly: boolean }> = [];
+
+		// Helper to extract tabs from an item and its children
+		function extractTabsFromItem(item: NavItem) {
+			if (item.component) {
+				tabs.push({ id: item.id, component: item.component, isReadOnly });
+			}
+			// Also extract tabs from children
+			if (item.children) {
+				for (const child of item.children) {
+					extractTabsFromItem(child);
+				}
+			}
+		}
 
 		for (const configItem of navConfig) {
 			if (isSection(configItem)) {
 				// Get tabs from section items
 				for (const item of configItem.items) {
-					if (item.component) {
-						tabs.push({ id: item.id, component: item.component });
-					}
+					extractTabsFromItem(item);
 				}
 			} else {
 				// Standalone item
-				if (configItem.component) {
-					tabs.push({ id: configItem.id, component: configItem.component });
-				}
+				extractTabsFromItem(configItem);
 			}
 		}
 
@@ -325,13 +303,33 @@
 		);
 	}
 
+	// Helper to filter an item and its children
+	function filterItemWithChildren(item: NavItem): NavItem | null {
+		if (!isItemVisible(item)) {
+			return null;
+		}
+
+		// If item has children, filter them too
+		if (item.children) {
+			const visibleChildren = item.children.filter(isItemVisible);
+			return {
+				...item,
+				children: visibleChildren.length > 0 ? visibleChildren : undefined
+			};
+		}
+
+		return item;
+	}
+
 	// Filter nav config based on user permissions and billing status
 	let navConfig = $derived.by((): NavConfig => {
 		return baseNavConfig
 			.map((configItem) => {
 				if (isSection(configItem)) {
-					// Filter items within the section
-					const visibleItems = configItem.items.filter(isItemVisible);
+					// Filter items within the section (including their children)
+					const visibleItems = configItem.items
+						.map(filterItemWithChildren)
+						.filter((item): item is NavItem => item !== null);
 
 					// Only include section if it has visible items
 					if (visibleItems.length === 0) {
@@ -344,7 +342,7 @@
 					};
 				} else {
 					// Standalone item - check if it should be visible
-					return isItemVisible(configItem) ? configItem : null;
+					return filterItemWithChildren(configItem);
 				}
 			})
 			.filter((item): item is NavSection | NavItem => item !== null);
@@ -373,7 +371,7 @@
 		// Show auth modal
 		if (typeof window !== 'undefined') {
 			if ($page.url.searchParams.get('auth_modal')) {
-				showAuthSettings = true;
+				showSettings = true;
 			}
 
 			try {
@@ -515,6 +513,28 @@
 													<span class="ml-3 truncate">{item.label}</span>
 												{/if}
 											</button>
+											<!-- Render children if present -->
+											{#if item.children && item.children.length > 0}
+												<ul class="mt-1 space-y-1" class:ml-4={!collapsed}>
+													{#each item.children as child (child.id)}
+														<li>
+															<button
+																onclick={() => handleItemClick(child)}
+																class="{baseClasses} {activeTab === child.id
+																	? 'text-primary border border-blue-600 bg-blue-700'
+																	: inactiveButtonClass}"
+																style="height: 2.25rem; padding: 0.375rem 0.75rem;"
+																title={collapsed ? child.label : ''}
+															>
+																<child.icon class="h-4 w-4 flex-shrink-0" />
+																{#if !collapsed}
+																	<span class="ml-3 truncate text-sm">{child.label}</span>
+																{/if}
+															</button>
+														</li>
+													{/each}
+												</ul>
+											{/if}
 										</li>
 									{/each}
 								</ul>
@@ -526,7 +546,7 @@
 							<button
 								onclick={() => handleItemClick(configItem)}
 								class="{baseClasses} {activeTab === configItem.id ||
-								(configItem.id === 'account' && showAuthSettings)
+								(configItem.id === 'settings' && showSettings)
 									? 'text-primary border border-blue-600 bg-blue-700'
 									: inactiveButtonClass}"
 								style="height: 2.5rem; padding: 0.5rem 0.75rem;"
@@ -553,7 +573,7 @@
 						<button
 							onclick={() => handleItemClick(item)}
 							class="{baseClasses} {activeTab === item.id ||
-							(item.id === 'account' && showAuthSettings)
+							(item.id === 'settings' && showSettings)
 								? 'text-primary border border-blue-600 bg-blue-700'
 								: inactiveButtonClass}"
 							style="height: 2.5rem; padding: 0.5rem 0.75rem;"
@@ -571,7 +591,5 @@
 	</div>
 </div>
 
-<AuthSettingsModal isOpen={showAuthSettings} onClose={() => (showAuthSettings = false)} />
+<SettingsModal isOpen={showSettings} onClose={() => (showSettings = false)} />
 <SupportModal isOpen={showSupport} onClose={() => (showSupport = false)} />
-<BillingSettingsModal isOpen={showBilling} onClose={() => (showBilling = false)} />
-<OrganizationSettingsModal isOpen={showOrgSettings} onClose={() => (showOrgSettings = false)} />

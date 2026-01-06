@@ -97,6 +97,7 @@ jobs:
           cp ui/static/services.json website/src/lib/fixtures/
           cp ui/static/features.json website/src/lib/fixtures/
           cp ui/static/billing-plans.json website/src/lib/fixtures/
+          cp ui/static/openapi-public.json website/src/lib/fixtures/openapi.json
 
       - name: Get previous release tag
         id: prev_tag

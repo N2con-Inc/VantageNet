@@ -5,9 +5,12 @@ use sqlx::{Row, postgres::PgRow};
 use std::fmt::Display;
 use uuid::Uuid;
 
-use crate::server::shared::storage::{
-    child::ChildStorableEntity,
-    traits::{SqlValue, StorableEntity},
+use crate::server::shared::{
+    position::Positioned,
+    storage::{
+        child::ChildStorableEntity,
+        traits::{SqlValue, StorableEntity},
+    },
 };
 
 /// The base data for a GroupBinding junction record
@@ -148,5 +151,23 @@ impl ChildStorableEntity for GroupBinding {
 
     fn parent_id(&self) -> Uuid {
         self.base.group_id
+    }
+}
+
+impl Positioned for GroupBinding {
+    fn position(&self) -> i32 {
+        self.base.position
+    }
+
+    fn set_position(&mut self, position: i32) {
+        self.base.position = position;
+    }
+
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    fn entity_name() -> &'static str {
+        "group binding"
     }
 }

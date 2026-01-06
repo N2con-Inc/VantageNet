@@ -142,6 +142,7 @@ impl CrudService<Subnet> for SubnetService {
                         metadata: serde_json::json!({
                             "trigger_stale": trigger_stale
                         }),
+
                         authentication,
                     })
                     .await?;

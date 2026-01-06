@@ -12,7 +12,10 @@ use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
 use crate::server::{
-    auth::{middleware::permissions::RequireMember, service::hash_password},
+    auth::{
+        middleware::permissions::{Authorized, Member},
+        service::hash_password,
+    },
     billing::types::base::BillingPlan,
     config::AppState,
     shared::{
@@ -82,11 +85,11 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "Share created", body = ApiResponse<Share>),
         (status = 400, description = "Invalid request", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_share(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(CreateUpdateShareRequest {
         mut share,
         password,
@@ -100,9 +103,11 @@ async fn create_share(
             Some(hash_password(&password).map_err(|e| ApiError::internal_error(&e.to_string()))?);
     }
 
-    share.base.created_by = user.user_id;
+    share.base.created_by = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
 
-    create_handler::<Share>(State(state), RequireMember(user), Json(share)).await
+    create_handler::<Share>(State(state), auth, Json(share)).await
 }
 
 /// Update a share
@@ -116,11 +121,11 @@ async fn create_share(
         (status = 200, description = "Share updated", body = ApiResponse<Share>),
         (status = 404, description = "Share not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_share(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
     Json(CreateUpdateShareRequest {
         mut share,
@@ -155,7 +160,7 @@ async fn update_share(
     }
 
     // Delegate to generic handler
-    update_handler::<Share>(State(state), user, Path(id), Json(share)).await
+    update_handler::<Share>(State(state), auth, Path(id), Json(share)).await
 }
 
 // ============================================================================
@@ -356,11 +361,31 @@ async fn get_share_topology(
         "public, max-age=300".parse().unwrap(),
     );
 
-    // Add X-Frame-Options: DENY if org doesn't have embeds feature
-    // This prevents iframing the share even via the regular link URL
-    if !has_embeds_feature {
-        headers.insert(header::X_FRAME_OPTIONS, "DENY".parse().unwrap());
-    }
+    // Set CSP frame-ancestors to control iframe embedding
+    // This overrides the global 'frame-ancestors self' default
+    let frame_ancestors = if has_embeds_feature {
+        // Org has embed feature - allow based on allowed_domains
+        if let Some(ref domains) = share.base.allowed_domains {
+            if !domains.is_empty() {
+                // Specific domains allowed
+                format!("frame-ancestors {}", domains.join(" "))
+            } else {
+                // Empty list = allow all
+                "frame-ancestors *".to_string()
+            }
+        } else {
+            // No restrictions = allow all
+            "frame-ancestors *".to_string()
+        }
+    } else {
+        // No embed feature - block all framing
+        "frame-ancestors 'none'".to_string()
+    };
+
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        frame_ancestors.parse().unwrap(),
+    );
 
     Ok(response)
 }

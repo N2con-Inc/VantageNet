@@ -248,12 +248,13 @@ pub enum AuthOperation {
 
     // Api Key Auth
     RotateKey,
+    ApiKeyAuthFailed,
 }
 
 impl AuthOperation {
     fn log_level(&self) -> EventLogLevel {
         match self {
-            AuthOperation::LoginFailed => EventLogLevel::Error,
+            AuthOperation::LoginFailed | AuthOperation::ApiKeyAuthFailed => EventLogLevel::Error,
             _ => EventLogLevel::Info,
         }
     }
@@ -270,6 +271,34 @@ pub struct AuthEvent {
     pub user_agent: Option<String>,
     pub metadata: serde_json::Value,
     pub authentication: AuthenticatedEntity,
+}
+
+impl AuthEvent {
+    /// Create a new AuthEvent, automatically deriving auth_method from authentication
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: Uuid,
+        user_id: Option<Uuid>,
+        organization_id: Option<Uuid>,
+        operation: AuthOperation,
+        timestamp: DateTime<Utc>,
+        ip_address: IpAddr,
+        user_agent: Option<String>,
+        metadata: serde_json::Value,
+        authentication: AuthenticatedEntity,
+    ) -> Self {
+        Self {
+            id,
+            user_id,
+            organization_id,
+            operation,
+            timestamp,
+            ip_address,
+            user_agent,
+            metadata,
+            authentication,
+        }
+    }
 }
 
 impl PartialEq for AuthEvent {
@@ -329,6 +358,34 @@ pub struct EntityEvent {
     pub metadata: serde_json::Value,
 }
 
+impl EntityEvent {
+    /// Create a new EntityEvent, automatically deriving auth_method from authentication
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        id: Uuid,
+        entity_type: Entity,
+        entity_id: Uuid,
+        network_id: Option<Uuid>,
+        organization_id: Option<Uuid>,
+        operation: EntityOperation,
+        timestamp: DateTime<Utc>,
+        authentication: AuthenticatedEntity,
+        metadata: serde_json::Value,
+    ) -> Self {
+        Self {
+            id,
+            entity_type,
+            entity_id,
+            network_id,
+            organization_id,
+            operation,
+            timestamp,
+            authentication,
+            metadata,
+        }
+    }
+}
+
 impl PartialEq for EntityEvent {
     fn eq(&self, other: &Self) -> bool {
         self.entity_id == other.entity_id
@@ -358,6 +415,7 @@ pub enum TelemetryOperation {
     // Onboarding funnel
     OrgCreated,
     OnboardingModalCompleted,
+    PlanSelected,
     PersonalPlanSelected,
     CommercialPlanSelected,
     FirstApiKeyCreated,
@@ -382,6 +440,27 @@ pub struct TelemetryEvent {
     pub timestamp: DateTime<Utc>,
     pub authentication: AuthenticatedEntity,
     pub metadata: serde_json::Value,
+}
+
+impl TelemetryEvent {
+    /// Create a new TelemetryEvent, automatically deriving auth_method from authentication
+    pub fn new(
+        id: Uuid,
+        organization_id: Uuid,
+        operation: TelemetryOperation,
+        timestamp: DateTime<Utc>,
+        authentication: AuthenticatedEntity,
+        metadata: serde_json::Value,
+    ) -> Self {
+        Self {
+            id,
+            organization_id,
+            operation,
+            timestamp,
+            authentication,
+            metadata,
+        }
+    }
 }
 
 impl Display for TelemetryEvent {

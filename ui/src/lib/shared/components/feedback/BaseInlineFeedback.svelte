@@ -38,7 +38,7 @@
 </script>
 
 {#if !dismissed}
-	<div class="rounded-lg border p-4 {borderColor} {bgColor}">
+	<div class="rounded-lg border p-2.5 {borderColor} {bgColor}">
 		<div class="flex items-start gap-2">
 			<Icon class="mt-0.5 h-4 w-4 shrink-0 {textColor}" />
 			<div class="flex-1">

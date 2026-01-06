@@ -6,6 +6,7 @@ help:
 	@echo "  make fresh-db       - Clean and set up a new database"
 	@echo "  make setup-db       - Set up database"
 	@echo "  make clean-db       - Clean up database"
+	@echo "  make migrate-db     - Run any database migrations"
 	@echo "  make clean-daemon   - Remove daemon config file"
 	@echo "  make dump-db        - Dump database to /vantagenet"
 	@echo "  make dev-server     - Start server dev environment"
@@ -51,6 +52,9 @@ setup-db:
 clean-db:
 	docker stop vantagenet-postgres || true
 	docker rm vantagenet-postgres || true
+
+migrate-db:
+	cd backend && sqlx migrate run --database-url postgresql://postgres:password@localhost:5432/scanopy
 
 clean-daemon:
 	rm -rf ~/Library/Application\ Support/com.vantagenet.daemon

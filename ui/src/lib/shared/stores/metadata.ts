@@ -52,7 +52,10 @@ export interface ServicedDefinitionMetadata {
 }
 
 export interface PermissionsMetadata {
-	can_manage_user_permissions: string[];
+	/** Permission levels this user can assign to API keys (own level or below) */
+	grantable_api_key_permissions: string[];
+	/** Permission levels this user can assign to other users (Owners can grant all, Admins can grant Member/Viewer) */
+	grantable_user_permissions: string[];
 	manage_org_entities: boolean;
 }
 

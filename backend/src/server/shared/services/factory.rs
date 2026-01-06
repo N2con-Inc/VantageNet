@@ -1,9 +1,9 @@
 use crate::server::{
-    api_keys::service::ApiKeyService,
     auth::{oidc::OidcService, service::AuthService},
     billing::service::{BillingService, BillingServiceParams},
     bindings::service::BindingService,
     config::ServerConfig,
+    daemon_api_keys::service::DaemonApiKeyService,
     daemons::service::DaemonService,
     discovery::service::DiscoveryService,
     email::{plunk::PlunkEmailProvider, smtp::SmtpEmailProvider, traits::EmailService},
@@ -22,6 +22,9 @@ use crate::server::{
     subnets::service::SubnetService,
     tags::service::TagService,
     topology::service::main::TopologyService,
+    user_api_keys::{
+        r#impl::network_access::UserApiKeyNetworkAccessStorage, service::UserApiKeyService,
+    },
     users::{UserNetworkAccessStorage, service::UserService},
 };
 use anyhow::Result;
@@ -39,7 +42,8 @@ pub struct ServiceFactory {
     pub topology_service: Arc<TopologyService>,
     pub service_service: Arc<ServiceService>,
     pub discovery_service: Arc<DiscoveryService>,
-    pub api_key_service: Arc<ApiKeyService>,
+    pub daemon_api_key_service: Arc<DaemonApiKeyService>,
+    pub user_api_key_service: Arc<UserApiKeyService>,
     pub organization_service: Arc<OrganizationService>,
     pub invite_service: Arc<InviteService>,
     pub share_service: Arc<ShareService>,
@@ -59,10 +63,19 @@ impl ServiceFactory {
 
         let logging_service = Arc::new(LoggingService::new());
 
-        let api_key_service = Arc::new(ApiKeyService::new(
-            storage.api_keys.clone(),
+        let daemon_api_key_service = Arc::new(DaemonApiKeyService::new(
+            storage.daemon_api_keys.clone(),
             event_bus.clone(),
         ));
+
+        let user_api_key_network_access_storage =
+            Arc::new(UserApiKeyNetworkAccessStorage::new(storage.pool.clone()));
+        let user_api_key_service = Arc::new(UserApiKeyService::new(
+            storage.user_api_keys.clone(),
+            user_api_key_network_access_storage,
+            event_bus.clone(),
+        ));
+
         let daemon_service = Arc::new(DaemonService::new(
             storage.daemons.clone(),
             event_bus.clone(),
@@ -251,7 +264,8 @@ impl ServiceFactory {
             topology_service,
             service_service,
             discovery_service,
-            api_key_service,
+            daemon_api_key_service,
+            user_api_key_service,
             organization_service,
             invite_service,
             share_service,

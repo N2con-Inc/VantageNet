@@ -17,25 +17,16 @@
 	import type { OrganizationInvite } from '$lib/features/organizations/types';
 	import { formatInviteUrl, useCreateInviteMutation } from '$lib/features/organizations/queries';
 	import type { UserOrgPermissions } from '../types';
-	import SelectInput from '$lib/shared/components/forms/input/SelectInput.svelte';
 	import { email } from '$lib/shared/components/forms/validators';
-	import { permissions, metadata, entities } from '$lib/shared/stores/metadata';
-	import { useCurrentUserQuery } from '$lib/features/auth/queries';
-	import ListManager from '$lib/shared/components/forms/selection/ListManager.svelte';
-	import { useNetworksQuery } from '$lib/features/networks/queries';
-	import { NetworkDisplay } from '$lib/shared/components/forms/selection/display/NetworkDisplay.svelte';
+	import { metadata, entities } from '$lib/shared/stores/metadata';
 	import TextInput from '$lib/shared/components/forms/input/TextInput.svelte';
 	import { useConfigQuery } from '$lib/shared/stores/config-query';
-	import type { Network } from '$lib/features/networks/types';
+
+	// Shared components
+	import PermissionSelect from '$lib/shared/components/api-keys/PermissionSelect.svelte';
+	import NetworkAccessSelect from '$lib/shared/components/api-keys/NetworkAccessSelect.svelte';
 
 	let { isOpen = $bindable(false), onClose }: { isOpen: boolean; onClose: () => void } = $props();
-
-	// TanStack Query for current user
-	const currentUserQuery = useCurrentUserQuery();
-	let currentUser = $derived(currentUserQuery.data);
-
-	const networksQuery = useNetworksQuery();
-	let networksData = $derived(networksQuery.data ?? []);
 
 	// Mutation for creating invite
 	const createInviteMutation = useCreateInviteMutation();
@@ -48,7 +39,6 @@
 	// Force Svelte to track reactivity
 	$effect(() => {
 		void $metadata;
-		void currentUser;
 	});
 
 	let copied = $state(false);
@@ -56,24 +46,8 @@
 	let generatingInvite = $derived(createInviteMutation.isPending);
 	let invite = $state<OrganizationInvite | null>(null);
 
-	const networksNotNeeded: string[] = permissions
-		.getItems()
-		.filter((p) => p.metadata.manage_org_entities)
-		.map((p) => p.id);
-
-	// Make permission options reactive to metadata and currentUser changes
-	let permissionOptions = $derived(
-		permissions
-			.getItems()
-			.filter((p) =>
-				currentUser
-					? permissions
-							.getMetadata(currentUser.permissions)
-							.can_manage_user_permissions.includes(p.id)
-					: false
-			)
-			.map((p) => ({ value: p.id, label: p.name ?? '', description: p.description ?? '' }))
-	);
+	// Track selected network IDs for the invite
+	let selectedNetworkIds = $state<string[]>([]);
 
 	// Create form
 	const form = createForm(() => ({
@@ -95,38 +69,15 @@
 	let ctaLoadingText = $derived(usingEmail ? 'Sending...' : 'Generating...');
 	let CtaIcon = $derived(usingEmail ? Send : RotateCcw);
 
-	let selectedNetworks: Network[] = $state([]);
-
-	let networkOptions = $derived(
-		networksData
-			.filter((n) => {
-				if (currentUser) {
-					return networksNotNeeded.includes(currentUser.permissions)
-						? true
-						: currentUser.network_ids.includes(n.id);
-				}
-				return false;
-			})
-			.filter((n) => !selectedNetworks.map((net) => net.id).includes(n.id) && n != undefined)
-	);
-
-	function handleAddNetwork(id: string) {
-		const network = networksData.find((n) => n.id == id);
-		if (network) {
-			selectedNetworks.push(network);
-			selectedNetworks = [...selectedNetworks];
-		}
-	}
-
-	function handleRemoveNetwork(index: number) {
-		selectedNetworks.splice(index, 1);
-		selectedNetworks = [...selectedNetworks];
+	// Handle network selection changes
+	function handleNetworkChange(networkIds: string[]) {
+		selectedNetworkIds = networkIds;
 	}
 
 	// Reset form when modal opens
 	function handleOpen() {
 		form.reset({ permissions: 'Viewer', email: '' });
-		selectedNetworks = [];
+		selectedNetworkIds = [];
 		invite = null;
 	}
 
@@ -143,7 +94,7 @@
 
 			const result = await createInviteMutation.mutateAsync({
 				permissions: currentPermissions,
-				network_ids: selectedNetworks.map((n) => n.id),
+				network_ids: selectedNetworkIds,
 				email: currentEmail
 			});
 			invite = result;
@@ -197,9 +148,9 @@
 	onOpen={handleOpen}
 	showCloseButton={true}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon Icon={UserPlus} color={entities.getColorHelper('User').color} />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="flex min-h-0 flex-1 flex-col">
 		<div class="flex-1 overflow-auto p-6">
@@ -212,41 +163,21 @@
 				<!-- Permissions Selection -->
 				<form.Field name="permissions">
 					{#snippet children(field)}
-						<SelectInput
-							label="Permissions Level"
-							id="permissions"
+						<PermissionSelect
 							{field}
-							options={permissionOptions}
-							disabled={!!invite}
+							label="Permissions Level"
 							helpText="Choose the access level for the invited user"
+							disabled={!!invite}
 						/>
 					{/snippet}
 				</form.Field>
 
-				{#if !networksNotNeeded.includes(permissionsValue)}
-					<ListManager
-						label="Networks"
-						helpText="Select networks this user will have access to"
-						required={true}
-						allowReorder={false}
-						allowAddFromOptions={true}
-						allowCreateNew={false}
-						allowItemEdit={() => false}
-						disableCreateNewButton={false}
-						onAdd={handleAddNetwork}
-						onRemove={handleRemoveNetwork}
-						options={networkOptions}
-						optionDisplayComponent={NetworkDisplay}
-						items={selectedNetworks}
-						itemDisplayComponent={NetworkDisplay}
-					/>
-				{:else}
-					<div class="card card-static">
-						<p class="text-secondary text-sm">
-							Users with {permissionsValue} permissions have access to all networks.
-						</p>
-					</div>
-				{/if}
+				<NetworkAccessSelect
+					{selectedNetworkIds}
+					onChange={handleNetworkChange}
+					permissionLevel={permissionsValue}
+					helpText="Select networks this user will have access to"
+				/>
 
 				{#if enableEmail}
 					<form.Field name="email" validators={{ onBlur: ({ value }) => email(value) }}>

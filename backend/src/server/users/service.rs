@@ -88,6 +88,7 @@ impl CrudService<User> for UserService {
                 operation: EntityOperation::Created,
                 timestamp: Utc::now(),
                 metadata,
+
                 authentication,
             })
             .await?;

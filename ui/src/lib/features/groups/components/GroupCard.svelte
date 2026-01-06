@@ -18,8 +18,8 @@
 
 	let {
 		group,
-		onEdit = () => {},
-		onDelete = () => {},
+		onEdit,
+		onDelete,
 		viewMode,
 		selected,
 		onSelectionChange = () => {}
@@ -121,17 +121,17 @@
 		],
 
 		actions: [
-			{
-				label: 'Delete',
-				icon: Trash2,
-				class: 'btn-icon-danger',
-				onClick: () => onDelete(group)
-			},
-			{
-				label: 'Edit',
-				icon: Edit,
-				onClick: () => onEdit(group)
-			}
+			...(onDelete
+				? [
+						{
+							label: 'Delete',
+							icon: Trash2,
+							class: 'btn-icon-danger',
+							onClick: () => onDelete(group)
+						}
+					]
+				: []),
+			...(onEdit ? [{ label: 'Edit', icon: Edit, onClick: () => onEdit(group) }] : [])
 		]
 	});
 </script>

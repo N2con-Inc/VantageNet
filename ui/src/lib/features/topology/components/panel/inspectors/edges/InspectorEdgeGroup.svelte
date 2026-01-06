@@ -10,8 +10,11 @@
 	import EdgeStyleForm from '$lib/features/groups/components/GroupEditModal/EdgeStyleForm.svelte';
 	import { createColorHelper } from '$lib/shared/utils/styling';
 	import type { Group } from '$lib/features/groups/types/base';
-	import { useTopologiesQuery } from '$lib/features/topology/queries';
-	import { autoRebuild, topology as selectedTopology } from '$lib/features/topology/store';
+	import {
+		useTopologiesQuery,
+		autoRebuild,
+		selectedTopologyId
+	} from '$lib/features/topology/queries';
 	import type { Topology } from '$lib/features/topology/types/base';
 	import { getTopologyStateInfo } from '$lib/features/topology/state';
 	import InlineWarning from '$lib/shared/components/feedback/InlineWarning.svelte';
@@ -30,9 +33,7 @@
 	const topologiesQuery = useTopologiesQuery();
 	let topologiesData = $derived(topologiesQuery.data ?? []);
 	let topology = $derived(
-		topologyContext
-			? $topologyContext
-			: (topologiesData.find((t) => t.id === $selectedTopology?.id) ?? $selectedTopology)
+		topologyContext ? $topologyContext : topologiesData.find((t) => t.id === $selectedTopologyId)
 	);
 
 	// Check if we're in readonly mode (context exists means we're on share page)

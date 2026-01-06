@@ -1,0 +1,362 @@
+use crate::server::{
+    auth::middleware::{
+        features::{ApiKeyFeature, BlockedInDemoMode, RequireFeature},
+        permissions::{Authorized, IsUser, Member, Viewer},
+    },
+    config::AppState,
+    shared::{
+        api_key_common::{ApiKeyService, ApiKeyType, generate_api_key_for_storage},
+        handlers::traits::{
+            BulkDeleteResponse, CrudHandlers, bulk_delete_handler, delete_handler,
+            get_by_id_handler,
+        },
+        services::traits::CrudService,
+        types::api::{ApiError, ApiErrorResponse, ApiResponse, ApiResult, EmptyApiResponse},
+    },
+    user_api_keys::{
+        r#impl::{api::UserApiKeyResponse, base::UserApiKey},
+        service::UserApiKeyService,
+    },
+};
+use axum::{
+    Json,
+    extract::{Path, State},
+};
+use axum_client_ip::ClientIp;
+use axum_extra::{TypedHeader, headers::UserAgent};
+use std::sync::Arc;
+use utoipa_axum::{router::OpenApiRouter, routes};
+use uuid::Uuid;
+
+pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
+    OpenApiRouter::new()
+        .routes(routes!(get_all, create_user_api_key))
+        .routes(routes!(get_by_id, delete))
+        .routes(routes!(update_user_api_key))
+        .routes(routes!(rotate_key_handler))
+        .routes(routes!(bulk_delete))
+}
+
+/// Get all user API keys for the current user
+#[utoipa::path(
+    get,
+    path = "",
+    tag = "user_api_keys",
+    operation_id = "get_all_user_api_keys",
+    responses(
+        (status = 200, description = "List of user API keys", body = ApiResponse<Vec<UserApiKey>>),
+        (status = 401, description = "Not authenticated", body = ApiErrorResponse),
+        (status = 500, description = "Internal server error", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+pub async fn get_all(
+    State(state): State<Arc<AppState>>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    auth: Authorized<IsUser>,
+) -> ApiResult<Json<ApiResponse<Vec<UserApiKey>>>> {
+    let user_id = auth.require_user_id()?;
+    let service = &state.services.user_api_key_service;
+
+    let keys = service.get_for_user(&user_id).await.map_err(|e| {
+        tracing::error!(
+            user_id = %user_id,
+            error = %e,
+            "Failed to fetch user API keys"
+        );
+        ApiError::internal_error(&e.to_string())
+    })?;
+
+    Ok(Json(ApiResponse::success(keys)))
+}
+
+/// Create a new user API key
+#[utoipa::path(
+    post,
+    path = "",
+    tag = "user_api_keys",
+    operation_id = "create_user_api_key",
+    responses(
+        (status = 200, description = "API key created", body = ApiResponse<UserApiKeyResponse>),
+        (status = 400, description = "Bad request", body = ApiErrorResponse),
+        (status = 403, description = "Invalid permissions or network access", body = ApiErrorResponse),
+        (status = 500, description = "Internal server error", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+pub async fn create_user_api_key(
+    State(state): State<Arc<AppState>>,
+    auth: Authorized<IsUser>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    _demo_check: RequireFeature<BlockedInDemoMode>,
+    Json(mut api_key): Json<UserApiKey>,
+) -> ApiResult<Json<ApiResponse<UserApiKeyResponse>>> {
+    let user_id = auth.require_user_id()?;
+    let organization_id = auth.require_organization_id()?;
+    let user_permissions = auth.require_permissions()?;
+    let user_network_ids = auth.network_ids();
+
+    tracing::debug!(
+        api_key_name = %api_key.base.name,
+        permissions = %api_key.base.permissions,
+        user_id = %user_id,
+        "User API key create request received"
+    );
+
+    // Validate permissions don't exceed user's permissions
+    UserApiKeyService::validate_permissions(api_key.base.permissions, user_permissions)
+        .map_err(|e| ApiError::forbidden(&e))?;
+
+    // Validate network access is a subset of user's access
+    UserApiKeyService::validate_network_access(&api_key.base.network_ids, &user_network_ids)
+        .map_err(|e| ApiError::forbidden(&e))?;
+
+    // Set user_id and organization_id from authenticated user
+    api_key.base.user_id = user_id;
+    api_key.base.organization_id = organization_id;
+
+    let (plaintext, hashed) = generate_api_key_for_storage(ApiKeyType::User);
+    api_key.base.key = hashed;
+
+    let network_ids = api_key.base.network_ids.clone();
+
+    let service = &state.services.user_api_key_service;
+    let api_key = service
+        .create_with_networks(api_key, network_ids, auth.entity.clone())
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                user_id = %user_id,
+                "Failed to create user API key"
+            );
+            ApiError::internal_error(&e.to_string())
+        })?;
+
+    Ok(Json(ApiResponse::success(UserApiKeyResponse {
+        key: plaintext,
+        api_key,
+    })))
+}
+
+/// Update a user API key
+#[utoipa::path(
+    put,
+    path = "/{id}",
+    tag = "user_api_keys",
+    operation_id = "update_user_api_key",
+    params(("id" = Uuid, Path, description = "API key ID")),
+    responses(
+        (status = 200, description = "API key updated", body = ApiResponse<UserApiKey>),
+        (status = 403, description = "Not authorized to update this key", body = ApiErrorResponse),
+        (status = 404, description = "API key not found", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+pub async fn update_user_api_key(
+    State(state): State<Arc<AppState>>,
+    auth: Authorized<IsUser>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    _demo_check: RequireFeature<BlockedInDemoMode>,
+    Path(id): Path<Uuid>,
+    Json(mut request): Json<UserApiKey>,
+) -> ApiResult<Json<ApiResponse<UserApiKey>>> {
+    let user_id = auth.require_user_id()?;
+    let user_permissions = auth.require_permissions()?;
+    let user_network_ids = auth.network_ids();
+
+    let service = &state.services.user_api_key_service;
+
+    // Fetch existing to verify ownership
+    let existing = service
+        .get_by_id(&id)
+        .await?
+        .ok_or_else(|| ApiError::not_found(format!("API key '{}' not found", id)))?;
+
+    // Verify the user owns this key
+    if existing.base.user_id != user_id {
+        return Err(ApiError::forbidden("You don't own this API key"));
+    }
+
+    // Validate permissions don't exceed user's permissions
+    UserApiKeyService::validate_permissions(request.base.permissions, user_permissions)
+        .map_err(|e| ApiError::forbidden(&e))?;
+
+    // Validate network access is a subset of user's access
+    UserApiKeyService::validate_network_access(&request.base.network_ids, &user_network_ids)
+        .map_err(|e| ApiError::forbidden(&e))?;
+
+    // Preserve immutable fields
+    request.preserve_immutable_fields(&existing);
+
+    // Update network access
+    let network_ids = request.base.network_ids.clone();
+    service.update_network_access(&id, &network_ids).await?;
+
+    // Update the entity
+    let updated = service
+        .update(&mut request, auth.into_entity())
+        .await
+        .map_err(|e| ApiError::internal_error(&e.to_string()))?;
+
+    // Return with hydrated network_ids
+    let mut result = updated;
+    result.base.network_ids = network_ids;
+
+    Ok(Json(ApiResponse::success(result)))
+}
+
+/// Rotate a user API key
+#[utoipa::path(
+    post,
+    path = "/{id}/rotate",
+    tag = "user_api_keys",
+    operation_id = "rotate_user_api_key",
+    params(("id" = Uuid, Path, description = "API key ID")),
+    responses(
+        (status = 200, description = "API key rotated, returns new key", body = ApiResponse<String>),
+        (status = 403, description = "Not authorized to rotate this key", body = ApiErrorResponse),
+        (status = 404, description = "API key not found", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+pub async fn rotate_key_handler(
+    State(state): State<Arc<AppState>>,
+    auth: Authorized<IsUser>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    _demo_check: RequireFeature<BlockedInDemoMode>,
+    ClientIp(ip): ClientIp,
+    user_agent: Option<TypedHeader<UserAgent>>,
+    Path(api_key_id): Path<Uuid>,
+) -> ApiResult<Json<ApiResponse<String>>> {
+    let user_id = auth.require_user_id()?;
+    let user_agent = user_agent.map(|u| u.to_string());
+
+    let service = &state.services.user_api_key_service;
+    let key = service
+        .rotate_key(api_key_id, ip, user_agent, auth.into_entity())
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                api_key_id = %api_key_id,
+                user_id = %user_id,
+                error = %e,
+                "Failed to rotate user API key"
+            );
+            ApiError::internal_error(&e.to_string())
+        })?;
+
+    Ok(Json(ApiResponse::success(key)))
+}
+
+/// Get a user API key by ID
+#[utoipa::path(
+    get,
+    path = "/{id}",
+    tag = "user_api_keys",
+    operation_id = "get_user_api_key_by_id",
+    params(("id" = Uuid, Path, description = "API key ID")),
+    responses(
+        (status = 200, description = "API key found", body = ApiResponse<UserApiKey>),
+        (status = 404, description = "API key not found", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+pub async fn get_by_id(
+    state: State<Arc<AppState>>,
+    auth: Authorized<IsUser>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ApiResponse<UserApiKey>>> {
+    let user_id = auth.user_id().unwrap_or(Uuid::nil());
+    let result =
+        get_by_id_handler::<UserApiKey>(state, auth.into_permission::<Viewer>(), Path(id)).await?;
+
+    if result
+        .data
+        .as_ref()
+        .map(|k| k.base.user_id != user_id)
+        .unwrap_or(true)
+    {
+        return Err(ApiError::not_found(format!("API key '{}' not found", id)));
+    }
+    Ok(result)
+}
+
+/// Delete a user API key
+#[utoipa::path(
+    delete,
+    path = "/{id}",
+    tag = "user_api_keys",
+    operation_id = "delete_user_api_key",
+    params(("id" = Uuid, Path, description = "API key ID")),
+    responses(
+        (status = 200, description = "API key deleted", body = EmptyApiResponse),
+        (status = 404, description = "API key not found", body = ApiErrorResponse),
+    ),
+    security(("session" = []))
+)]
+pub async fn delete(
+    state: State<Arc<AppState>>,
+    auth: Authorized<IsUser>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    _demo_check: RequireFeature<BlockedInDemoMode>,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<ApiResponse<()>>> {
+    let user_id = auth.user_id().unwrap_or(Uuid::nil());
+
+    // Verify ownership before deleting
+    let key = state.services.user_api_key_service.get_by_id(&id).await?;
+    if key
+        .as_ref()
+        .map(|k| k.base.user_id != user_id)
+        .unwrap_or(true)
+    {
+        return Err(ApiError::not_found(format!("API key '{}' not found", id)));
+    }
+
+    delete_handler::<UserApiKey>(state, auth.into_permission::<Member>(), Path(id)).await
+}
+
+/// Bulk delete user API keys
+#[utoipa::path(
+    post,
+    path = "/bulk-delete",
+    tag = "user_api_keys",
+    operation_id = "bulk_delete_user_api_keys",
+    request_body(content = Vec<Uuid>, description = "Array of API key IDs to delete"),
+    responses(
+        (status = 200, description = "API keys deleted", body = ApiResponse<BulkDeleteResponse>),
+    ),
+    security(("session" = []))
+)]
+pub async fn bulk_delete(
+    state: State<Arc<AppState>>,
+    auth: Authorized<IsUser>,
+    _feature: RequireFeature<ApiKeyFeature>,
+    _demo_check: RequireFeature<BlockedInDemoMode>,
+    Json(ids): Json<Vec<Uuid>>,
+) -> ApiResult<Json<ApiResponse<BulkDeleteResponse>>> {
+    let user_id = auth.user_id().unwrap_or(Uuid::nil());
+    let service = &state.services.user_api_key_service;
+
+    // Filter to only keys owned by this user
+    let mut owned_ids = Vec::new();
+    for id in &ids {
+        if let Ok(Some(key)) = service.get_by_id(id).await
+            && key.base.user_id == user_id
+        {
+            owned_ids.push(*id);
+        }
+    }
+
+    let result =
+        bulk_delete_handler::<UserApiKey>(state, auth.into_permission::<Member>(), Json(owned_ids))
+            .await?;
+
+    // Combine counts
+    Ok(Json(ApiResponse::success(BulkDeleteResponse {
+        deleted_count: result.data.as_ref().map(|r| r.deleted_count).unwrap_or(0),
+        requested_count: ids.len(),
+    })))
+}

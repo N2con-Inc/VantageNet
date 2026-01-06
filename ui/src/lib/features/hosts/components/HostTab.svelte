@@ -15,6 +15,9 @@
 	import type { FieldConfig } from '$lib/shared/components/data/types';
 	import { Plus } from 'lucide-svelte';
 	import { useTagsQuery } from '$lib/features/tags/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 	import {
 		useHostsQuery,
 		useCreateHostMutation,
@@ -251,9 +254,11 @@
 	<!-- Header -->
 	<TabHeader title="Hosts" subtitle="Manage hosts on the network">
 		<svelte:fragment slot="actions">
-			<button class="btn-primary flex items-center" onclick={handleCreateHost}
-				><Plus class="h-5 w-5" />Create Host</button
-			>
+			{#if !isReadOnly}
+				<button class="btn-primary flex items-center" onclick={handleCreateHost}
+					><Plus class="h-5 w-5" />Create Host</button
+				>
+			{/if}
 		</svelte:fragment>
 	</TabHeader>
 
@@ -273,7 +278,7 @@
 			items={hostsData}
 			fields={hostFields}
 			storageKey="scanopy-hosts-table-state"
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			getItemId={(item) => item.id}
 		>
 			{#snippet children(
@@ -288,10 +293,10 @@
 					{viewMode}
 					selected={isSelected}
 					{onSelectionChange}
-					onEdit={handleEditHost}
-					onDelete={handleDeleteHost}
-					onConsolidate={handleStartConsolidate}
-					onHide={handleHostHide}
+					onEdit={isReadOnly ? undefined : handleEditHost}
+					onDelete={isReadOnly ? undefined : handleDeleteHost}
+					onConsolidate={isReadOnly ? undefined : handleStartConsolidate}
+					onHide={isReadOnly ? undefined : handleHostHide}
 				/>
 			{/snippet}
 		</DataControls>

@@ -11,6 +11,7 @@
 	import { v4 as uuidv4 } from 'uuid';
 	import type { Service } from '$lib/features/services/types/base';
 	import ConfirmationDialog from '$lib/shared/components/feedback/ConfirmationDialog.svelte';
+	import EntityMetadataSection from '$lib/shared/components/forms/EntityMetadataSection.svelte';
 
 	interface Props {
 		formData: HostFormData;
@@ -200,7 +201,8 @@
 		{@const selectedSubnet = selectedItem ? findSubnetById(selectedItem.subnet_id) : null}
 
 		<!-- Render all interface config panels to register form fields, but only show the selected one -->
-		{#each interfaces as iface, index (iface.id)}
+		<!-- Key includes index to force re-mount when position changes (reordering) -->
+		{#each interfaces as iface, index (`${iface.id}-${index}`)}
 			{@const subnet = findSubnetById(iface.subnet_id)}
 			{#if subnet && subnet.cidr !== '0.0.0.0/0'}
 				<div class:hidden={selectedIndex !== index}>
@@ -230,6 +232,8 @@
 		{/if}
 	</svelte:fragment>
 </ListConfigEditor>
+
+<EntityMetadataSection entities={formData.interfaces} showSummary={false} />
 
 <ConfirmationDialog
 	isOpen={showDeleteConfirmation}

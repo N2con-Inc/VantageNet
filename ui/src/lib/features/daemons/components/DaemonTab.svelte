@@ -16,6 +16,9 @@
 	} from '$lib/features/daemons/queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
 	import { useHostsQuery } from '$lib/features/hosts/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const tagsQuery = useTagsQuery();
@@ -100,9 +103,11 @@
 	<!-- Header -->
 	<TabHeader title="Daemons" subtitle="Manage daemons">
 		<svelte:fragment slot="actions">
-			<button class="btn-primary flex items-center" onclick={handleCreateDaemon}
-				><Plus class="h-5 w-5" />Create Daemon</button
-			>
+			{#if !isReadOnly}
+				<button class="btn-primary flex items-center" onclick={handleCreateDaemon}
+					><Plus class="h-5 w-5" />Create Daemon</button
+				>
+			{/if}
 		</svelte:fragment>
 	</TabHeader>
 
@@ -122,7 +127,7 @@
 			items={daemonsData}
 			fields={daemonFields}
 			storageKey="scanopy-daemons-table-state"
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			getItemId={(item) => item.id}
 		>
 			{#snippet children(
@@ -134,7 +139,7 @@
 				<DaemonCard
 					daemon={item}
 					{viewMode}
-					onDelete={handleDeleteDaemon}
+					onDelete={isReadOnly ? undefined : handleDeleteDaemon}
 					selected={isSelected}
 					{onSelectionChange}
 				/>

@@ -51,13 +51,13 @@
 	showCloseButton={false}
 	preventCloseOnClickOutside={true}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<img
 			src="https://cdn.jsdelivr.net/gh/scanopy/website@main/static/scanopy-logo.png"
 			alt="Scanopy Logo"
 			class="h-8 w-8"
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="space-y-1 p-6">
 		<p class="text-secondary mb-3 text-center text-sm">Let us help you get started</p>
@@ -112,11 +112,13 @@
 		{/each}
 	</div>
 
-	<svelte:fragment slot="footer">
-		<div class="flex justify-end">
-			<button type="button" class="btn-primary" on:click={handleContinueSetup}>
-				Continue Setup
-			</button>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex justify-end">
+				<button type="button" class="btn-primary" on:click={handleContinueSetup}>
+					Continue Setup
+				</button>
+			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

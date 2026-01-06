@@ -18,6 +18,9 @@
 	} from '../queries';
 	import { useServicesQuery } from '$lib/features/services/queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const tagsQuery = useTagsQuery();
@@ -152,9 +155,11 @@
 <div class="space-y-6">
 	<TabHeader title="Groups" subtitle="Create custom groups to improve topology visualization">
 		<svelte:fragment slot="actions">
-			<button class="btn-primary flex items-center" onclick={handleCreateGroup}
-				><Plus class="h-5 w-5" />Create Group</button
-			>
+			{#if !isReadOnly}
+				<button class="btn-primary flex items-center" onclick={handleCreateGroup}
+					><Plus class="h-5 w-5" />Create Group</button
+				>
+			{/if}
 		</svelte:fragment>
 	</TabHeader>
 
@@ -173,7 +178,7 @@
 			items={groupsData}
 			fields={groupFields}
 			storageKey="scanopy-groups-table-state"
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			getItemId={(item) => item.id}
 		>
 			{#snippet children(
@@ -187,8 +192,8 @@
 					selected={isSelected}
 					{onSelectionChange}
 					{viewMode}
-					onEdit={() => handleEditGroup(item)}
-					onDelete={() => handleDeleteGroup(item)}
+					onEdit={isReadOnly ? undefined : () => handleEditGroup(item)}
+					onDelete={isReadOnly ? undefined : () => handleDeleteGroup(item)}
 				/>
 			{/snippet}
 		</DataControls>

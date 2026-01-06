@@ -1,8 +1,7 @@
-//! Billing middleware that checks subscription status for user-authenticated requests.
+//! Billing middleware that checks subscription status for authenticated requests.
 //!
 //! This middleware examines each request and:
-//! - For user requests (session-based auth): Checks billing status, returns 402 if not active
-//! - For daemon requests (API key auth): Passes through (daemons operate on behalf of orgs)
+//! - For authenticated requests (user, API key, daemon): Checks billing status, returns 402 if not active
 //! - For unauthenticated requests: Passes through (handler auth will reject if needed)
 //!
 //! Exemptions (always allowed regardless of billing):
@@ -12,25 +11,28 @@
 //! - Self-hosted instances (no stripe_secret configured)
 
 use crate::server::{
+    auth::middleware::{
+        auth::AuthenticatedEntity,
+        cache::{CachedNetwork, CachedOrganization},
+    },
     billing::types::base::BillingPlan,
     config::AppState,
-    shared::{services::traits::CrudService, types::api::ApiError},
 };
 use axum::{
     body::Body,
-    extract::State,
+    extract::{FromRequestParts, State},
     http::{Request, StatusCode},
     middleware::Next,
     response::{IntoResponse, Response},
 };
 use std::sync::Arc;
-use tower_sessions::Session;
 use uuid::Uuid;
 
-/// Middleware that enforces billing requirements for user-authenticated requests.
+/// Middleware that enforces billing requirements for authenticated requests.
 ///
 /// Apply this middleware at the router level to groups of routes that require billing.
-/// Daemon requests pass through without billing checks.
+/// Checks billing for users (session), user API keys, and daemons.
+/// Caches looked-up entities in request extensions for subsequent handlers.
 pub async fn require_billing_for_users(
     State(state): State<Arc<AppState>>,
     request: Request<Body>,
@@ -45,64 +47,51 @@ pub async fn require_billing_for_users(
         return next.run(request).await;
     }
 
-    // Check if this is a daemon request (has Authorization header with Bearer token + X-Daemon-ID)
-    let has_daemon_auth = request
-        .headers()
-        .get(axum::http::header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.starts_with("Bearer "))
-        .unwrap_or(false)
-        && request.headers().get("X-Daemon-ID").is_some();
+    // Split request to access parts for caching
+    let (mut parts, body) = request.into_parts();
 
-    if has_daemon_auth {
-        // Daemon requests are exempt from billing checks
-        return next.run(request).await;
-    }
-
-    // Check if this is a user request (has session with user_id)
-    // Access session from request extensions (set by SessionManagerLayer)
-    let session = request.extensions().get::<Session>().cloned();
-
-    let Some(session) = session else {
-        // No session - not a user request, pass through (handler will auth)
-        return next.run(request).await;
-    };
-
-    let user_id: Option<Uuid> = session.get("user_id").await.ok().flatten();
-
-    let Some(user_id) = user_id else {
-        // No user_id in session - not authenticated, pass through
-        return next.run(request).await;
-    };
-
-    // Get user's organization
-    let user = match state.services.user_service.get_by_id(&user_id).await {
-        Ok(Some(user)) => user,
-        Ok(None) => {
-            // User not found - pass through, handler auth will reject
-            return next.run(request).await;
-        }
-        Err(_) => {
-            return ApiError::internal_error("Failed to load user").into_response();
-        }
-    };
-
-    let organization = match state
-        .services
-        .organization_service
-        .get_by_id(&user.base.organization_id)
+    // Extract authenticated entity (cached in extensions)
+    let entity = AuthenticatedEntity::from_request_parts(&mut parts, &state)
         .await
-    {
-        Ok(Some(org)) => org,
-        Ok(None) => {
-            return ApiError::internal_error("Organization not found").into_response();
+        .ok();
+
+    // Get organization ID based on auth type, caching network lookup for daemons
+    let organization_id: Option<Uuid> = match &entity {
+        Some(AuthenticatedEntity::User {
+            organization_id, ..
+        }) => Some(*organization_id),
+        Some(AuthenticatedEntity::ApiKey {
+            organization_id, ..
+        }) => Some(*organization_id),
+        Some(AuthenticatedEntity::Daemon { network_id, .. }) => {
+            // Use cached network lookup
+            match CachedNetwork::get_or_load(&mut parts, &state, network_id).await {
+                Ok(network) => Some(network.base.organization_id),
+                Err(_) => None,
+            }
         }
-        Err(_) => {
-            return ApiError::internal_error("Failed to load organization").into_response();
-        }
+        _ => None,
     };
+
+    let Some(organization_id) = organization_id else {
+        // Not authenticated or no org - pass through (handler auth will reject if needed)
+        let request = Request::from_parts(parts, body);
+        return next.run(request).await;
+    };
+
+    // Get organization using cache
+    let organization =
+        match CachedOrganization::get_or_load(&mut parts, &state, &organization_id).await {
+            Ok(org) => org,
+            Err(e) => {
+                return e.into_response();
+            }
+        };
 
     let plan = organization.base.plan.unwrap_or_default();
+
+    // Reassemble request with cached entities in extensions
+    let request = Request::from_parts(parts, body);
 
     // Check plan type - some plans are exempt from billing checks
     match &plan {

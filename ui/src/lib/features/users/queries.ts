@@ -18,7 +18,7 @@ export function useUsersQuery(options?: { enabled?: boolean | (() => boolean) })
 		return {
 			queryKey: queryKeys.users.all,
 			queryFn: async () => {
-				const { data } = await apiClient.GET('/api/users');
+				const { data } = await apiClient.GET('/api/v1/users');
 				if (!data?.success || !data.data) {
 					throw new Error(data?.error || 'Failed to fetch users');
 				}
@@ -37,7 +37,7 @@ export function useUpdateUserAsAdminMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (user: User) => {
-			const { data } = await apiClient.PUT('/api/users/{id}/admin', {
+			const { data } = await apiClient.PUT('/api/v1/users/{id}/admin', {
 				params: { path: { id: user.id } },
 				body: user
 			});
@@ -63,7 +63,7 @@ export function useDeleteUserMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/users/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/users/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -88,7 +88,7 @@ export function useBulkDeleteUsersMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/users/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/users/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete users');
 			}

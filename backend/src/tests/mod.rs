@@ -41,6 +41,7 @@ use std::sync::Arc;
 use testcontainers::{ContainerAsync, GenericImage, ImageExt, core::WaitFor, runners::AsyncRunner};
 use uuid::Uuid;
 
+pub mod compat;
 pub mod dependencies;
 
 pub const DAEMON_CONFIG_FIXTURE: &str = "src/tests/daemon_config.json";
@@ -147,6 +148,7 @@ pub fn service(network_id: &Uuid, host_id: &Uuid) -> Service {
         virtualization: None,
         source: EntitySource::System,
         tags: Vec::new(),
+        position: 0,
     })
 }
 
@@ -177,6 +179,8 @@ pub fn daemon(network_id: &Uuid, host_id: &Uuid) -> Daemon {
             has_docker_socket: false,
             interfaced_subnet_ids: Vec::new(),
         },
+        version: None,
+        user_id: Uuid::nil(),
     })
 }
 

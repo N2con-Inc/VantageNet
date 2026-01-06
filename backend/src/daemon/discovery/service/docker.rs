@@ -296,6 +296,7 @@ impl DiscoveryRunner<DockerScanDiscovery> {
                 )],
                 details: MatchDetails::new_certain("Docker daemon self-report"),
             },
+            position: 0,
         });
 
         let mut temp_docker_daemon_host = Host::new(HostBase {
@@ -714,14 +715,24 @@ impl DiscoveryRunner<DockerScanDiscovery> {
                                         .collect();
 
                                     // Add bindings for all non-Docker bridge interfaces
+                                    // Use the interface ID from the `interfaces` list (not container_interfaces_and_subnets)
+                                    // because Interface::eq deduplication at lines 617-621 may have matched
+                                    // different interface objects with different UUIDs
                                     for (interface, subnet) in container_interfaces_and_subnets {
                                         if subnet.base.subnet_type.discriminant()
                                             != SubnetTypeDiscriminants::DockerBridge
                                         {
-                                            s.base.bindings.push(Binding::new_port_serviceless(
-                                                port.id,
-                                                Some(interface.id),
-                                            ));
+                                            // Find the matching interface in the interfaces list
+                                            if let Some(matched_interface) =
+                                                interfaces.iter().find(|i| *i == interface)
+                                            {
+                                                s.base.bindings.push(
+                                                    Binding::new_port_serviceless(
+                                                        port.id,
+                                                        Some(matched_interface.id),
+                                                    ),
+                                                );
+                                            }
                                         }
                                     }
 

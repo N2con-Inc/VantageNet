@@ -1,5 +1,4 @@
-use crate::server::auth::middleware::auth::AuthenticatedUser;
-use crate::server::auth::middleware::permissions::RequireOwner;
+use crate::server::auth::middleware::permissions::{Authorized, Owner};
 use crate::server::billing::types::api::CreateCheckoutRequest;
 use crate::server::billing::types::base::BillingPlan;
 use crate::server::config::AppState;
@@ -30,11 +29,11 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "List of available billing plans", body = ApiResponse<Vec<BillingPlan>>),
         (status = 400, description = "Billing not enabled", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_billing_plans(
     State(state): State<Arc<AppState>>,
-    RequireOwner(_user): RequireOwner,
+    _auth: Authorized<Owner>,
 ) -> Result<impl IntoResponse, ApiError> {
     if let Some(billing_service) = state.services.billing_service.clone() {
         let plans = billing_service.get_plans();
@@ -59,14 +58,17 @@ async fn get_billing_plans(
         (status = 200, description = "Checkout session URL", body = ApiResponse<String>),
         (status = 400, description = "Invalid plan or billing not enabled", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_checkout_session(
     State(state): State<Arc<AppState>>,
-    RequireOwner(_user): RequireOwner,
-    user: AuthenticatedUser,
+    auth: Authorized<Owner>,
     Json(request): Json<CreateCheckoutRequest>,
 ) -> ApiResult<Json<ApiResponse<String>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     // Build success/cancel URLs
     let success_url = format!("{}?session_id={{CHECKOUT_SESSION_ID}}", request.url);
     let cancel_url = format!("{}/billing", request.url);
@@ -80,11 +82,11 @@ async fn create_checkout_session(
 
         let session = billing_service
             .create_checkout_session(
-                user.organization_id,
+                organization_id,
                 request.plan,
                 success_url,
                 cancel_url,
-                user.into(),
+                auth.into_entity(),
             )
             .await?;
 
@@ -138,17 +140,20 @@ async fn handle_webhook(
         (status = 200, description = "Portal session URL", body = ApiResponse<String>),
         (status = 400, description = "Billing not enabled", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_portal_session(
     State(state): State<Arc<AppState>>,
-    RequireOwner(_user): RequireOwner,
-    user: AuthenticatedUser,
+    auth: Authorized<Owner>,
     Json(return_url): Json<String>,
 ) -> ApiResult<Json<ApiResponse<String>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     if let Some(billing_service) = &state.services.billing_service {
         let session_url = billing_service
-            .create_portal_session(user.organization_id, return_url)
+            .create_portal_session(organization_id, return_url)
             .await?;
 
         Ok(Json(ApiResponse::success(session_url)))

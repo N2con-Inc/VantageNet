@@ -1,7 +1,6 @@
 use crate::server::auth::middleware::auth::AuthenticatedEntity;
 use crate::server::auth::middleware::features::{BlockedInDemoMode, RequireFeature};
-use crate::server::auth::middleware::permissions::RequireOwner;
-use crate::server::auth::middleware::{auth::AuthenticatedUser, permissions::RequireMember};
+use crate::server::auth::middleware::permissions::{Authorized, IsUser, Member, Owner};
 use crate::server::auth::service::hash_password;
 use crate::server::billing::types::base::BillingPlan;
 use crate::server::config::AppState;
@@ -44,15 +43,16 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
 )]
 pub async fn get_organization(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    auth: Authorized<IsUser>,
 ) -> ApiResult<Json<ApiResponse<Organization>>> {
+    let organization_id = auth.require_organization_id()?;
     let service = Organization::get_service(&state);
     let entity = service
-        .get_by_id(&user.organization_id)
+        .get_by_id(&organization_id)
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?
         .ok_or_else(|| {
-            ApiError::not_found(format!("Organization '{}' not found", user.organization_id))
+            ApiError::not_found(format!("Organization '{}' not found", organization_id))
         })?;
 
     Ok(Json(ApiResponse::success(entity)))
@@ -70,11 +70,11 @@ pub async fn get_organization(
         (status = 403, description = "Only owners can update organization", body = ApiErrorResponse),
         (status = 404, description = "Organization not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn update_org_name(
     State(state): State<Arc<AppState>>,
-    RequireOwner(user): RequireOwner,
+    auth: Authorized<Owner>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     Path(id): Path<Uuid>,
     Json(name): Json<String>,
@@ -90,7 +90,7 @@ pub async fn update_org_name(
 
     update_handler::<Organization>(
         axum::extract::State(state),
-        RequireMember(user),
+        auth.into_permission::<Member>(),
         axum::extract::Path(id),
         axum::extract::Json(org),
     )
@@ -108,13 +108,17 @@ pub async fn update_org_name(
         (status = 403, description = "Cannot reset another organization", body = ApiErrorResponse),
         (status = 404, description = "Organization not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn reset(
     State(state): State<Arc<AppState>>,
-    RequireOwner(user): RequireOwner,
+    auth: Authorized<Owner>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    let user_org_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     // Verify organization exists
     let org = state
         .services
@@ -123,13 +127,13 @@ pub async fn reset(
         .await?
         .ok_or_else(|| ApiError::not_found("Organization not found".to_string()))?;
 
-    if org.id != user.organization_id {
+    if org.id != user_org_id {
         return Err(ApiError::forbidden("Cannot reset another organization"));
     }
 
-    let auth: AuthenticatedEntity = user.clone().into();
+    let entity: AuthenticatedEntity = auth.into_entity();
 
-    reset_organization_data(&state, &org.id, auth).await?;
+    reset_organization_data(&state, &org.id, entity).await?;
 
     Ok(Json(ApiResponse::success(())))
 }
@@ -145,15 +149,22 @@ pub async fn reset(
         (status = 403, description = "Only available for demo organizations", body = ApiErrorResponse),
         (status = 404, description = "Organization not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn populate_demo_data(
     State(state): State<Arc<AppState>>,
-    RequireOwner(user): RequireOwner,
+    auth: Authorized<Owner>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
     use crate::server::organizations::demo_data::{DemoData, generate_groups};
     use crate::server::services::r#impl::base::Service;
+
+    let user_org_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
 
     let org = state
         .services
@@ -162,7 +173,7 @@ pub async fn populate_demo_data(
         .await?
         .ok_or_else(|| ApiError::not_found("Organization not found".to_string()))?;
 
-    if org.id != user.organization_id {
+    if org.id != user_org_id {
         return Err(ApiError::forbidden(
             "Cannot populate demo data for another organization",
         ));
@@ -189,19 +200,23 @@ pub async fn populate_demo_data(
         .map(|u| u.id)
         .unwrap_or(Uuid::new_v4());
 
-    let auth: AuthenticatedEntity = user.clone().into();
+    let entity: AuthenticatedEntity = auth.into_entity();
 
     // First, reset all existing data
-    reset_organization_data(&state, &id, auth.clone()).await?;
+    reset_organization_data(&state, &id, entity.clone()).await?;
 
     // Generate demo data
-    let demo_data = DemoData::generate(id);
+    let demo_data = DemoData::generate(id, user_id);
 
     // Insert entities in dependency order:
     // 1. Tags (no dependencies) - keep track of created tags for group generation
     let mut created_tags = Vec::new();
     for tag in demo_data.tags {
-        let created = state.services.tag_service.create(tag, auth.clone()).await?;
+        let created = state
+            .services
+            .tag_service
+            .create(tag, entity.clone())
+            .await?;
         created_tags.push(created);
     }
 
@@ -211,7 +226,7 @@ pub async fn populate_demo_data(
         let created = state
             .services
             .network_service
-            .create(network, auth.clone())
+            .create(network, entity.clone())
             .await?;
         created_networks.push(created);
     }
@@ -221,7 +236,7 @@ pub async fn populate_demo_data(
         state
             .services
             .subnet_service
-            .create(subnet, auth.clone())
+            .create(subnet, entity.clone())
             .await?;
     }
 
@@ -236,7 +251,7 @@ pub async fn populate_demo_data(
                 host_with_services.interfaces,
                 host_with_services.ports,
                 host_with_services.services,
-                auth.clone(),
+                entity.clone(),
             )
             .await?;
         all_created_services.extend(host_response.services);
@@ -247,7 +262,7 @@ pub async fn populate_demo_data(
         state
             .services
             .daemon_service
-            .create(daemon, auth.clone())
+            .create(daemon, entity.clone())
             .await?;
     }
 
@@ -255,8 +270,8 @@ pub async fn populate_demo_data(
     for api_key in demo_data.api_keys {
         state
             .services
-            .api_key_service
-            .create(api_key, auth.clone())
+            .daemon_api_key_service
+            .create(api_key, entity.clone())
             .await?;
     }
 
@@ -266,7 +281,7 @@ pub async fn populate_demo_data(
         state
             .services
             .group_service
-            .create(group, auth.clone())
+            .create(group, entity.clone())
             .await?;
     }
 
@@ -275,7 +290,7 @@ pub async fn populate_demo_data(
         state
             .services
             .topology_service
-            .create(topology, auth.clone())
+            .create(topology, entity.clone())
             .await?;
     }
 
@@ -293,7 +308,7 @@ pub async fn populate_demo_data(
     state
         .services
         .user_service
-        .create(demo_admin, auth.clone())
+        .create(demo_admin, entity.clone())
         .await?;
 
     Ok(Json(ApiResponse::success(())))
@@ -354,7 +369,7 @@ async fn reset_organization_data(
         .await?;
     state
         .services
-        .api_key_service
+        .daemon_api_key_service
         .delete_all_for_org(organization_id, &network_ids, auth.clone())
         .await?;
     state

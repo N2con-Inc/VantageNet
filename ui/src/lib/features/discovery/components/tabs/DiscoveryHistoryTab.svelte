@@ -17,6 +17,9 @@
 	} from '../../queries';
 	import { useDaemonsQuery } from '$lib/features/daemons/queries';
 	import { useHostsQuery } from '$lib/features/hosts/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const discoveriesQuery = useDiscoveriesQuery();
@@ -124,7 +127,7 @@
 		<DataControls
 			items={discoveriesData.filter((d) => d.run_type.type == 'Historical')}
 			{fields}
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			storageKey="scanopy-discovery-historical-table-state"
 			getItemId={(item) => item.id}
 		>

@@ -16,6 +16,13 @@ impl CrudHandlers for Topology {
         &state.services.topology_service
     }
 
+    fn preserve_immutable_fields(&mut self, existing: &Self) {
+        self.id = existing.id;
+        self.base.parent_id = existing.base.parent_id;
+        self.created_at = existing.created_at;
+        self.updated_at = existing.updated_at;
+    }
+
     fn entity_name() -> &'static str {
         Self::table_name()
     }

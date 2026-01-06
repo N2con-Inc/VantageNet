@@ -35,7 +35,7 @@ async fn test_billing_active_allows_requests(ctx: &TestContext) -> Result<(), St
     println!("Testing: active status allows requests...");
     set_plan_status(Some("active"))?;
 
-    let _: Vec<Tag> = ctx.client.get("/api/tags").await?;
+    let _: Vec<Tag> = ctx.client.get("/api/v1/tags").await?;
 
     println!("  ✓ active status allows GET requests");
     Ok(())
@@ -45,7 +45,7 @@ async fn test_billing_trialing_allows_requests(ctx: &TestContext) -> Result<(), 
     println!("Testing: trialing status allows requests...");
     set_plan_status(Some("trialing"))?;
 
-    let _: Vec<Host> = ctx.client.get("/api/hosts").await?;
+    let _: Vec<Host> = ctx.client.get("/api/v1/hosts").await?;
 
     println!("  ✓ trialing status allows requests");
 
@@ -69,21 +69,21 @@ async fn test_billing_past_due_blocks_requests(ctx: &TestContext) -> Result<(), 
 
     let result = ctx
         .client
-        .post_expect_status("/api/subnets", &subnet, StatusCode::PAYMENT_REQUIRED)
+        .post_expect_status("/api/v1/subnets", &subnet, StatusCode::PAYMENT_REQUIRED)
         .await;
     assert!(result.is_ok(), "past_due should return 402: {:?}", result);
-    println!("  ✓ past_due blocks POST /api/subnets (402)");
+    println!("  ✓ past_due blocks POST /api/v1/subnets (402)");
 
     let result = ctx
         .client
-        .get_expect_status("/api/hosts", StatusCode::PAYMENT_REQUIRED)
+        .get_expect_status("/api/v1/hosts", StatusCode::PAYMENT_REQUIRED)
         .await;
     assert!(
         result.is_ok(),
         "past_due should return 402 for GET: {:?}",
         result
     );
-    println!("  ✓ past_due blocks GET /api/hosts (402)");
+    println!("  ✓ past_due blocks GET /api/v1/hosts (402)");
 
     set_plan_status(Some("active"))?;
     Ok(())
@@ -95,7 +95,7 @@ async fn test_billing_canceled_blocks_requests(ctx: &TestContext) -> Result<(), 
 
     let result = ctx
         .client
-        .get_expect_status("/api/hosts", StatusCode::PAYMENT_REQUIRED)
+        .get_expect_status("/api/v1/hosts", StatusCode::PAYMENT_REQUIRED)
         .await;
     assert!(result.is_ok(), "canceled should return 402: {:?}", result);
     println!("  ✓ canceled blocks requests (402)");
@@ -110,7 +110,7 @@ async fn test_billing_null_blocks_requests(ctx: &TestContext) -> Result<(), Stri
 
     let result = ctx
         .client
-        .get_expect_status("/api/hosts", StatusCode::PAYMENT_REQUIRED)
+        .get_expect_status("/api/v1/hosts", StatusCode::PAYMENT_REQUIRED)
         .await;
     assert!(
         result.is_ok(),

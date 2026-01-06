@@ -5,7 +5,7 @@ use std::sync::Arc;
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
-use crate::server::auth::middleware::permissions::RequireMember;
+use crate::server::auth::middleware::permissions::{Authorized, Member};
 use crate::server::config::AppState;
 use crate::server::interfaces::r#impl::base::Interface;
 use crate::server::shared::handlers::traits::{BulkDeleteResponse, create_handler, update_handler};
@@ -91,11 +91,11 @@ async fn validate_interface_consistency(
         (status = 200, description = "Interface created successfully", body = ApiResponse<Interface>),
         (status = 400, description = "Network mismatch or invalid request", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_interface(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Json(mut interface): Json<Interface>,
 ) -> ApiResult<Json<ApiResponse<Interface>>> {
     validate_interface_consistency(&state, &interface).await?;
@@ -109,7 +109,7 @@ async fn create_interface(
         .map_err(|e| ApiError::internal_error(&e.to_string()))?;
     interface.base.position = next_position;
 
-    create_handler::<Interface>(State(state), user, Json(interface)).await
+    create_handler::<Interface>(State(state), auth, Json(interface)).await
 }
 
 /// Update an interface
@@ -125,11 +125,11 @@ async fn create_interface(
         (status = 400, description = "Network mismatch or invalid request", body = ApiErrorResponse),
         (status = 404, description = "Interface not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_interface(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     path: Path<Uuid>,
     Json(interface): Json<Interface>,
 ) -> ApiResult<Json<ApiResponse<Interface>>> {
@@ -142,7 +142,7 @@ async fn update_interface(
         .validate_position_for_update(&path, &interface.base.host_id, interface.base.position)
         .await?;
 
-    update_handler::<Interface>(State(state), user, path, Json(interface)).await
+    update_handler::<Interface>(State(state), auth, path, Json(interface)).await
 }
 
 /// Delete an interface
@@ -156,13 +156,19 @@ async fn update_interface(
         (status = 200, description = "Interface deleted successfully", body = EmptyApiResponse),
         (status = 404, description = "Interface not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn delete_interface(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let entity_auth = auth.into_entity();
+
     let service = &state.services.interface_service;
 
     // Fetch entity first to verify ownership and get host_id
@@ -175,21 +181,21 @@ async fn delete_interface(
     validate_delete_access(
         Some(entity.base.network_id),
         None,
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
     let host_id = entity.base.host_id;
 
     // Delete the interface
     service
-        .delete(&id, user.clone().into())
+        .delete(&id, entity_auth.clone())
         .await
         .map_err(ApiError::from)?;
 
     // Renumber remaining interfaces for this host
     service
-        .renumber_interfaces_for_host(&host_id, user.into())
+        .renumber_interfaces_for_host(&host_id, entity_auth)
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?;
 
@@ -207,16 +213,22 @@ async fn delete_interface(
         (status = 200, description = "Interfaces deleted successfully", body = ApiResponse<BulkDeleteResponse>),
         (status = 400, description = "No IDs provided", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn bulk_delete_interfaces(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(ids): Json<Vec<Uuid>>,
 ) -> ApiResult<Json<ApiResponse<BulkDeleteResponse>>> {
     if ids.is_empty() {
         return Err(ApiError::bad_request("No IDs provided for bulk delete"));
     }
+
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let entity_auth = auth.into_entity();
 
     let service = &state.services.interface_service;
 
@@ -232,22 +244,22 @@ async fn bulk_delete_interfaces(
         validate_bulk_delete_access(
             Some(entity.base.network_id),
             None,
-            &user.network_ids,
-            user.organization_id,
+            &network_ids,
+            organization_id,
         )?;
     }
 
     // Only delete entities that actually exist and user has access to
     let valid_ids: Vec<Uuid> = entities.iter().map(|e| e.id).collect();
     let deleted_count = service
-        .delete_many(&valid_ids, user.clone().into())
+        .delete_many(&valid_ids, entity_auth.clone())
         .await
         .map_err(ApiError::from)?;
 
     // Renumber remaining interfaces for all affected hosts
     for host_id in affected_host_ids {
         service
-            .renumber_interfaces_for_host(&host_id, user.clone().into())
+            .renumber_interfaces_for_host(&host_id, entity_auth.clone())
             .await
             .map_err(|e| ApiError::internal_error(&e.to_string()))?;
     }

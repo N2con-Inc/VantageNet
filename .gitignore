@@ -22,3 +22,6 @@ Thumbs.db
 # Environment
 .env
 oidc.toml
+
+# AI
+CLAUDE.md

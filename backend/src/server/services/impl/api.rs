@@ -115,6 +115,7 @@ impl CreateServiceRequest {
                 virtualization,
                 source,
                 tags,
+                position: 0, // Position assigned during creation based on existing services
             },
         }
     }

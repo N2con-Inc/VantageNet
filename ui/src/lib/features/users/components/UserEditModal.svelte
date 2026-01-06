@@ -58,9 +58,10 @@
 			.getItems()
 			.filter((p) => {
 				if (!currentUser) return false;
-				const canManage = permissions
-					.getMetadata(currentUser.permissions)
-					.can_manage_user_permissions.includes(p.id);
+				const canManage =
+					permissions
+						.getMetadata(currentUser.permissions)
+						?.grantable_user_permissions?.includes(p.id) ?? false;
 				return canManage;
 			})
 			.map((p) => ({ value: p.id, label: p.name ?? '', description: p.description ?? '' }))
@@ -147,12 +148,12 @@
 	onOpen={handleOpen}
 	showCloseButton={true}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon
 			Icon={entities.getIconComponent('User')}
 			color={entities.getColorHelper('User').color}
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<form
 		onsubmit={(e) => {

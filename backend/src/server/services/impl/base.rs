@@ -11,6 +11,7 @@ use crate::server::services::r#impl::virtualization::{
     DockerVirtualization, ServiceVirtualization,
 };
 use crate::server::shared::entities::ChangeTriggersTopologyStaleness;
+use crate::server::shared::position::Positioned;
 use crate::server::shared::storage::traits::StorableEntity;
 use crate::server::shared::types::entities::{DiscoveryMetadata, EntitySource};
 use crate::server::subnets::r#impl::base::Subnet;
@@ -39,6 +40,10 @@ pub struct ServiceBase {
     #[serde(default)]
     #[schema(required)]
     pub tags: Vec<Uuid>,
+    /// Position of this service in the host's service list (for ordering)
+    #[serde(default)]
+    #[schema(required)]
+    pub position: i32,
 }
 
 impl Default for ServiceBase {
@@ -52,6 +57,7 @@ impl Default for ServiceBase {
             virtualization: None,
             source: EntitySource::Unknown,
             tags: Vec::new(),
+            position: 0,
         }
     }
 }
@@ -136,10 +142,14 @@ impl PartialEq for Service {
             return true;
         }
 
-        // Gateway services are singletons per host - only one gateway per host
-        // They typically only have interface bindings (no ports)
+        // Gateway and OpenPorts services are singletons per host - only one per host
+        // Gateway typically only has interface bindings (no ports)
+        // OpenPorts collects unclaimed ports and should merge rather than create duplicates
         // Handles: Gateway discovered on eth0, eth1, wlan0 -> should be same service
-        if ServiceDefinitionExt::is_gateway(&self.base.service_definition) {
+        // Handles: OpenPorts from multiple discovery runs -> should merge bindings
+        if ServiceDefinitionExt::is_gateway(&self.base.service_definition)
+            || ServiceDefinitionExt::is_open_ports(&self.base.service_definition)
+        {
             return true;
         }
 
@@ -426,6 +436,7 @@ impl Service {
                     metadata: vec![discovery_metadata],
                     details: result.details.clone(),
                 },
+                position: 0, // Discovery services get position assigned during merge
             });
 
             Some((service, ports, result.endpoint))
@@ -437,5 +448,23 @@ impl Service {
             );
             None
         }
+    }
+}
+
+impl Positioned for Service {
+    fn position(&self) -> i32 {
+        self.base.position
+    }
+
+    fn set_position(&mut self, position: i32) {
+        self.base.position = position;
+    }
+
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    fn entity_name() -> &'static str {
+        "service"
     }
 }

@@ -1,4 +1,5 @@
 use crate::server::shared::entities::ChangeTriggersTopologyStaleness;
+use crate::server::shared::position::Positioned;
 use crate::server::subnets::r#impl::base::Subnet;
 use chrono::{DateTime, Utc};
 use mac_address::MacAddress;
@@ -129,5 +130,23 @@ impl ChangeTriggersTopologyStaleness<Interface> for Interface {
         } else {
             true
         }
+    }
+}
+
+impl Positioned for Interface {
+    fn position(&self) -> i32 {
+        self.base.position
+    }
+
+    fn set_position(&mut self, position: i32) {
+        self.base.position = position;
+    }
+
+    fn id(&self) -> Uuid {
+        self.id
+    }
+
+    fn entity_name() -> &'static str {
+        "interface"
     }
 }

@@ -4,8 +4,7 @@
 	import { HostDisplay } from '$lib/shared/components/forms/selection/display/HostDisplay.svelte';
 	import { InterfaceDisplay } from '$lib/shared/components/forms/selection/display/InterfaceDisplay.svelte';
 	import { ServiceDisplay } from '$lib/shared/components/forms/selection/display/ServiceDisplay.svelte';
-	import { useTopologiesQuery } from '$lib/features/topology/queries';
-	import { topology as selectedTopology } from '$lib/features/topology/store';
+	import { useTopologiesQuery, selectedTopologyId } from '$lib/features/topology/queries';
 	import type { InterfaceNode, Topology } from '$lib/features/topology/types/base';
 	import { getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
@@ -20,9 +19,7 @@
 	let servicesData = $derived(servicesQuery.data ?? []);
 	let topologiesData = $derived(topologiesQuery.data ?? []);
 	let topology = $derived(
-		topologyContext
-			? $topologyContext
-			: (topologiesData.find((t) => t.id === $selectedTopology?.id) ?? $selectedTopology)
+		topologyContext ? $topologyContext : topologiesData.find((t) => t.id === $selectedTopologyId)
 	);
 
 	let nodeData = node.data as InterfaceNode;

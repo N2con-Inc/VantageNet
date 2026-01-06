@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::Response,
 };
+use semver::Version;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::DeserializeOwned};
 use std::fmt;
 use utoipa::ToSchema;
@@ -44,11 +45,33 @@ macro_rules! bail_validation {
     };
 }
 
+/// API version metadata included in all responses
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ApiMeta {
+    /// API version (integer, increments on breaking changes)
+    pub api_version: u32,
+    /// Server version (semver)
+    #[schema(value_type = String, example = "0.12.10")]
+    pub server_version: Version,
+}
+
+impl Default for ApiMeta {
+    fn default() -> Self {
+        Self {
+            api_version: 1,
+            server_version: Version::parse(env!("CARGO_PKG_VERSION")).unwrap(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct ApiResponse<T> {
     pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    pub meta: ApiMeta,
 }
 
 pub type EmptyApiResponse = ApiResponse<()>;
@@ -66,6 +89,7 @@ impl<T> ApiResponse<T> {
             success: true,
             data: Some(data),
             error: None,
+            meta: ApiMeta::default(),
         }
     }
 
@@ -74,11 +98,12 @@ impl<T> ApiResponse<T> {
             success: false,
             data: None,
             error: Some(message),
+            meta: ApiMeta::default(),
         }
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApiError {
     pub status: StatusCode,
     pub message: String,

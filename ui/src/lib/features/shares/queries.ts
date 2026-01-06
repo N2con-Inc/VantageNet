@@ -14,7 +14,7 @@ export function useSharesQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.shares.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/shares');
+			const { data } = await apiClient.GET('/api/v1/shares');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch shares');
 			}
@@ -31,7 +31,7 @@ export function useCreateShareMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (request: CreateUpdateShareRequest) => {
-			const { data } = await apiClient.POST('/api/shares', { body: request });
+			const { data } = await apiClient.POST('/api/v1/shares', { body: request });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create share');
 			}
@@ -53,7 +53,7 @@ export function useUpdateShareMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async ({ id, request }: { id: string; request: CreateUpdateShareRequest }) => {
-			const { data } = await apiClient.PUT('/api/shares/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/shares/{id}', {
 				params: { path: { id } },
 				body: request
 			});
@@ -79,7 +79,7 @@ export function useDeleteShareMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/shares/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/shares/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -104,7 +104,7 @@ export function useBulkDeleteSharesMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/shares/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/shares/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete shares');
 			}
@@ -132,7 +132,7 @@ export async function getPublicShareMetadata(
 	shareId: string
 ): Promise<{ success: boolean; data?: PublicShareMetadata; error?: string }> {
 	try {
-		const response = await fetch(`/api/shares/public/${shareId}`, {
+		const response = await fetch(`/api/v1/shares/public/${shareId}`, {
 			method: 'GET',
 			headers: {
 				'Content-Type': 'application/json'
@@ -159,7 +159,7 @@ export async function verifySharePassword(
 	password: string
 ): Promise<{ success: boolean; error?: string }> {
 	try {
-		const response = await fetch(`/api/shares/public/${shareId}/verify`, {
+		const response = await fetch(`/api/v1/shares/public/${shareId}/verify`, {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json'
@@ -188,8 +188,8 @@ export async function getPublicShareTopology(
 ): Promise<{ success: boolean; data?: ShareWithTopology; error?: string }> {
 	try {
 		const url = options.embed
-			? `/api/shares/public/${shareId}/topology?embed=true`
-			: `/api/shares/public/${shareId}/topology`;
+			? `/api/v1/shares/public/${shareId}/topology?embed=true`
+			: `/api/v1/shares/public/${shareId}/topology`;
 		const response = await fetch(url, {
 			method: 'POST',
 			headers: {
@@ -229,9 +229,9 @@ export function generateShareUrl(shareId: string): string {
  */
 export function generateEmbedUrl(shareId: string): string {
 	if (typeof window !== 'undefined') {
-		return `${window.location.origin}/embed/${shareId}`;
+		return `${window.location.origin}/share/${shareId}?embed=true`;
 	}
-	return `/embed/${shareId}`;
+	return `/share/${shareId}?embed=true`;
 }
 
 /**

@@ -45,8 +45,8 @@
 	let {
 		service,
 		host,
-		onDelete = () => {},
-		onEdit = () => {},
+		onDelete,
+		onEdit,
 		viewMode,
 		selected,
 		onSelectionChange = () => {}
@@ -147,18 +147,19 @@
 			}
 		],
 		actions: [
-			{
-				label: 'Delete',
-				icon: Trash2,
-				class: 'btn-icon-danger',
-				onClick: () => onDelete(service)
-			},
-			{
-				label: 'Edit',
-				icon: Edit,
-				class: 'btn-icon',
-				onClick: () => onEdit(service)
-			}
+			...(onDelete
+				? [
+						{
+							label: 'Delete',
+							icon: Trash2,
+							class: 'btn-icon-danger',
+							onClick: () => onDelete(service)
+						}
+					]
+				: []),
+			...(onEdit
+				? [{ label: 'Edit', icon: Edit, class: 'btn-icon', onClick: () => onEdit(service) }]
+				: [])
 		]
 	});
 </script>

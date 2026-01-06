@@ -5,11 +5,15 @@ use crate::{
         DiscoveryPhase, DiscoverySessionInfo, DiscoverySessionUpdate,
     },
     server::{
-        daemons::r#impl::base::{Daemon, DaemonMode},
+        daemons::r#impl::{
+            base::{Daemon, DaemonBase, DaemonMode},
+            version::{DaemonVersionStatus, DeprecationWarning},
+        },
         discovery::r#impl::types::DiscoveryType,
     },
 };
 use chrono::{DateTime, Utc};
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
@@ -43,6 +47,13 @@ pub struct DaemonRegistrationRequest {
     pub url: String,
     pub mode: DaemonMode,
     pub capabilities: DaemonCapabilities,
+    /// User responsible for maintaining this daemon (from frontend install command)
+    /// Optional for backwards compat with old daemons - defaults to nil UUID
+    #[serde(default)]
+    pub user_id: Uuid,
+    /// Daemon software version (optional for backwards compat with old daemons)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// Daemon registration response from server to daemon
@@ -50,6 +61,9 @@ pub struct DaemonRegistrationRequest {
 pub struct DaemonRegistrationResponse {
     pub daemon: Daemon,
     pub host_id: Uuid,
+    /// Server capabilities (returned if daemon sends version info)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_capabilities: Option<ServerCapabilities>,
 }
 
 /// Daemon discovery request from server to daemon
@@ -132,4 +146,38 @@ pub struct DaemonHeartbeatPayload {
     pub url: String,
     pub name: String,
     pub mode: DaemonMode,
+}
+
+/// Sent by daemon on startup to report version
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DaemonStartupRequest {
+    /// Daemon software version (semver format)
+    #[schema(value_type = String)]
+    pub daemon_version: Version,
+}
+
+/// Server capabilities returned on startup/registration
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ServerCapabilities {
+    /// Server software version
+    #[schema(value_type = String)]
+    pub server_version: Version,
+    /// Minimum daemon version supported by this server
+    #[schema(value_type = String)]
+    pub minimum_daemon_version: Version,
+    /// Deprecation warnings for the daemon
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub deprecation_warnings: Vec<DeprecationWarning>,
+}
+
+/// Daemon response for UI including computed version status
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct DaemonResponse {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    #[serde(flatten)]
+    pub base: DaemonBase,
+    /// Computed version status including health and warnings
+    pub version_status: DaemonVersionStatus,
 }

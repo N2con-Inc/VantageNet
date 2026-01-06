@@ -21,8 +21,8 @@
 
 	let {
 		subnet,
-		onEdit = () => {},
-		onDelete = () => {},
+		onEdit,
+		onDelete,
 		viewMode,
 		selected,
 		onSelectionChange = () => {}
@@ -75,7 +75,7 @@
 				value: subnet.description
 			},
 			{
-				label: 'Network Type',
+				label: 'Subnet Type',
 				value: [
 					{
 						id: 'type',
@@ -106,17 +106,25 @@
 		],
 
 		actions: [
-			{
-				label: 'Delete',
-				icon: Trash2,
-				class: 'btn-icon-danger',
-				onClick: () => onDelete(subnet)
-			},
-			{
-				label: 'Edit',
-				icon: Edit,
-				onClick: () => onEdit(subnet)
-			}
+			...(onDelete
+				? [
+						{
+							label: 'Delete',
+							icon: Trash2,
+							class: 'btn-icon-danger',
+							onClick: () => onDelete(subnet)
+						}
+					]
+				: []),
+			...(onEdit
+				? [
+						{
+							label: 'Edit',
+							icon: Edit,
+							onClick: () => onEdit(subnet)
+						}
+					]
+				: [])
 		]
 	});
 </script>

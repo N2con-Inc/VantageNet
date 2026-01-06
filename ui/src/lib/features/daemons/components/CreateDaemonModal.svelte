@@ -12,7 +12,7 @@
 	import {
 		createEmptyApiKeyFormData,
 		useCreateApiKeyMutation
-	} from '$lib/features/api_keys/queries';
+	} from '$lib/features/daemon_api_keys/queries';
 	import { useConfigQuery } from '$lib/shared/stores/config-query';
 	import InlineInfo from '$lib/shared/components/feedback/InlineInfo.svelte';
 	import CreateDaemonForm from './CreateDaemonForm.svelte';
@@ -108,13 +108,13 @@
 	showCloseButton={!onboardingMode}
 	showBackdrop={!onboardingMode}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		{#if onboardingMode}
 			<ModalHeaderIcon Icon={SatelliteDish} color="Green" />
 		{:else}
 			<ModalHeaderIcon Icon={entities.getIconComponent('Daemon')} color={colorHelper.color} />
 		{/if}
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="flex min-h-0 flex-1 flex-col">
 		<div class="flex-1 overflow-auto p-6">

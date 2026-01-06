@@ -2,7 +2,7 @@ import { Lock, Radio, RefreshCcw } from 'lucide-svelte';
 import type { Topology } from './types/base';
 import type { IconComponent } from '$lib/shared/utils/types';
 import type { Color } from '$lib/shared/utils/styling';
-import { hasConflicts } from './store';
+import { hasConflicts } from './queries';
 
 export type TopologyStateType = 'locked' | 'fresh' | 'stale_safe' | 'stale_conflicts';
 

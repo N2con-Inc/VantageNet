@@ -9,8 +9,8 @@
 
 	let {
 		share,
-		onEdit = () => {},
-		onDelete = () => {},
+		onEdit,
+		onDelete,
 		viewMode = 'card',
 		selected = false,
 		onSelectionChange = () => {}
@@ -97,12 +97,16 @@
 					: [])
 			],
 			actions: [
-				{
-					label: 'Delete',
-					icon: Trash2,
-					class: 'btn-icon-danger',
-					onClick: () => onDelete(share)
-				},
+				...(onDelete
+					? [
+							{
+								label: 'Delete',
+								icon: Trash2,
+								class: 'btn-icon-danger',
+								onClick: () => onDelete(share)
+							}
+						]
+					: []),
 				{
 					label: copied ? 'Copied!' : 'Copy URL',
 					icon: copied ? Check : Copy,
@@ -114,11 +118,7 @@
 					icon: ExternalLink,
 					onClick: openUrl
 				},
-				{
-					label: 'Edit',
-					icon: Edit,
-					onClick: () => onEdit(share)
-				}
+				...(onEdit ? [{ label: 'Edit', icon: Edit, onClick: () => onEdit(share) }] : [])
 			]
 		};
 	});

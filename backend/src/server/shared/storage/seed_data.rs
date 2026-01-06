@@ -102,6 +102,7 @@ pub fn create_remote_host(
         bindings: vec![binding],
         virtualization: None,
         source: EntitySource::System,
+        position: 0,
     });
 
     (host, vec![interface], vec![dynamic_port], client_service)
@@ -140,6 +141,7 @@ pub fn create_internet_connectivity_host(
         bindings: vec![binding],
         virtualization: None,
         source: EntitySource::System,
+        position: 0,
     });
 
     (host, vec![interface], vec![https_port], web_service)
@@ -178,6 +180,7 @@ pub fn create_public_dns_host(
         bindings: vec![binding],
         virtualization: None,
         source: EntitySource::System,
+        position: 0,
     });
 
     (host, vec![interface], vec![dns_udp_port], dns_service)

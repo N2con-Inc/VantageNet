@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { topologyOptions } from '../../../store';
+	import { topologyOptions } from '../../../queries';
 	import { edgeTypes, serviceDefinitions } from '$lib/shared/stores/metadata';
 	import { ChevronDown, ChevronRight } from 'lucide-svelte';
 

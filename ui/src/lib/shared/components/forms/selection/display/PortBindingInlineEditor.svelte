@@ -2,20 +2,15 @@
 	import { formatInterface } from '$lib/features/hosts/queries';
 	import { ALL_INTERFACES, type HostFormData } from '$lib/features/hosts/types/base';
 	import { useServicesQuery } from '$lib/features/services/queries';
-	import { useInterfacesQuery } from '$lib/features/interfaces/queries';
-	import { usePortsQuery } from '$lib/features/ports/queries';
 	import { useSubnetsQuery, isContainerSubnet } from '$lib/features/subnets/queries';
 	import type { PortBinding, Service } from '$lib/features/services/types/base';
 	import { formatPort } from '$lib/shared/utils/formatting';
+	import InlineDanger from '$lib/shared/components/feedback/InlineDanger.svelte';
 
 	// TanStack Query hooks
 	const servicesQuery = useServicesQuery();
-	const interfacesQuery = useInterfacesQuery();
-	const portsQuery = usePortsQuery();
 	const subnetsQuery = useSubnetsQuery();
 	let servicesData = $derived(servicesQuery.data ?? []);
-	let interfacesData = $derived(interfacesQuery.data ?? []);
-	let portsData = $derived(portsQuery.data ?? []);
 	let subnetsData = $derived(subnetsQuery.data ?? []);
 
 	// Helper to check if subnet is a container subnet
@@ -24,24 +19,24 @@
 		return subnet ? isContainerSubnet(subnet) : false;
 	});
 
-	// Check if an interface is unsaved (not yet in the query cache)
-	function isInterfaceUnsaved(id: string): boolean {
-		return !interfacesData.some((i) => i.id === id);
-	}
-
-	// Check if a port is unsaved (not yet in the query cache)
-	function isPortUnsaved(id: string): boolean {
-		return !portsData.some((p) => p.id === id);
-	}
-
 	interface Props {
 		binding: PortBinding;
 		onUpdate?: (updates: Partial<PortBinding>) => void;
 		service?: Service;
 		host?: HostFormData;
+		services?: Service[];
 	}
 
-	let { binding, onUpdate = () => {}, service = undefined, host = undefined }: Props = $props();
+	let {
+		binding,
+		onUpdate = () => {},
+		service = undefined,
+		host = undefined,
+		services = undefined
+	}: Props = $props();
+
+	// Use services from props (current editing state) if provided, otherwise fall back to global cache
+	let effectiveServicesData = $derived(services ?? servicesData);
 
 	// Type guard for services with Port bindings
 	function isServiceWithPortBindings(svc: Service): svc is Service {
@@ -51,7 +46,7 @@
 	// Check if this port+interface combination conflicts with existing bindings
 	function getConflictingService(portId: string, interfaceId: string | null): Service | null {
 		// Get services that have a binding on this port
-		const servicesForPort = servicesData.filter((s) =>
+		const servicesForPort = effectiveServicesData.filter((s) =>
 			s.bindings.some((b) => b.type === 'Port' && b.port_id === portId)
 		);
 
@@ -94,16 +89,6 @@
 	// Create interface options with disabled state
 	let interfaceOptions = $derived(
 		host?.interfaces.map((iface) => {
-			// Check if interface is unsaved (not in query cache) - can't bind until host is saved
-			if (isInterfaceUnsaved(iface.id)) {
-				return {
-					iface,
-					disabled: true,
-					reason: 'Save host first',
-					boundService: null
-				};
-			}
-
 			// Check for Interface binding conflict - can't add Port binding if THIS service has Interface binding here
 			const thisServiceHasInterfaceBinding = service?.bindings.some(
 				(b) => b.type === 'Interface' && b.interface_id === iface.id && b.id !== binding.id
@@ -117,15 +102,11 @@
 				};
 			}
 
-			// Check for Port binding conflict (port_id is required for Port bindings)
-			const boundService = binding.port_id
-				? getConflictingService(binding.port_id, iface.id)
-				: null;
 			return {
 				iface,
-				disabled: boundService !== null && iface.id !== binding.interface_id,
-				reason: boundService ? `Port bound by ${boundService.name}` : null,
-				boundService
+				disabled: false,
+				reason: null,
+				boundService: null
 			};
 		}) || []
 	);
@@ -145,12 +126,11 @@
 				};
 			}
 
-			const boundService = binding.port_id ? getConflictingService(binding.port_id, null) : null;
 			return {
 				iface: ALL_INTERFACES,
-				disabled: boundService !== null && binding.interface_id !== null,
-				reason: boundService ? `Port bound by ${boundService.name}` : null,
-				boundService
+				disabled: false,
+				reason: null,
+				boundService: null
 			};
 		})()
 	);
@@ -158,16 +138,6 @@
 	// Create port options with disabled state
 	let portOptions = $derived(
 		host?.ports.map((p) => {
-			// Check if port is unsaved (not in query cache) - can't bind until host is saved
-			if (isPortUnsaved(p.id)) {
-				return {
-					port: p,
-					disabled: true,
-					reason: 'Save host first',
-					boundService: null
-				};
-			}
-
 			const boundService = getConflictingService(p.id, binding.interface_id);
 			return {
 				port: p,
@@ -192,6 +162,9 @@
 		selectedPort = binding.port_id ?? '';
 	});
 
+	// Check if there are any valid (non-disabled) port options
+	let hasValidPortOptions = $derived(portOptions.some((opt) => !opt.disabled));
+
 	// Handle interface selection change
 	function handleInterfaceChange(event: Event) {
 		const target = event.target as HTMLSelectElement;
@@ -200,7 +173,19 @@
 
 		const interfaceId = newValue === ALL_INTERFACES_SENTINEL ? null : newValue;
 		if (interfaceId !== binding.interface_id) {
-			onUpdate({ interface_id: interfaceId });
+			// Check if current port is still valid on the new interface
+			const currentPortConflict = binding.port_id
+				? getConflictingService(binding.port_id, interfaceId)
+				: null;
+
+			if (currentPortConflict || !binding.port_id) {
+				// Current port conflicts on new interface OR no port selected - find first valid port
+				const firstValidPort = host?.ports.find((p) => !getConflictingService(p.id, interfaceId));
+				// Reset to valid port, or empty if none available
+				onUpdate({ interface_id: interfaceId, port_id: firstValidPort?.id ?? '' });
+			} else {
+				onUpdate({ interface_id: interfaceId });
+			}
 		}
 	}
 
@@ -273,6 +258,12 @@
 					>
 						No ports configured on host
 					</div>
+				</div>
+			{:else if !hasValidPortOptions}
+				<div class="flex-1">
+					<label for="port-select-{binding.id}" class="text-tertiary mb-1 block text-xs">Port</label
+					>
+					<InlineDanger title="No available ports on this interface" />
 				</div>
 			{:else}
 				<div class="flex-1">

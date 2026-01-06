@@ -154,3 +154,14 @@ export function pattern(regex: RegExp, message: string): Validator {
 		return !regex.test(value) ? message : undefined;
 	};
 }
+
+/** Array minimum length validator */
+export function minArrayLength(
+	length: number,
+	message?: string
+): (value: unknown[] | null | undefined) => string | undefined {
+	return (value: unknown[] | null | undefined) => {
+		if (!value || !Array.isArray(value)) return message ?? `At least ${length} item(s) required`;
+		return value.length < length ? (message ?? `At least ${length} item(s) required`) : undefined;
+	};
+}

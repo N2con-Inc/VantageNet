@@ -17,11 +17,6 @@
 		return subnet ? isContainerSubnet(subnet) : false;
 	});
 
-	// Check if an interface is unsaved (not yet in the query cache)
-	function isInterfaceUnsaved(id: string): boolean {
-		return !interfacesData.some((i) => i.id === id);
-	}
-
 	interface Props {
 		binding: InterfaceBinding;
 		onUpdate?: (updates: Partial<InterfaceBinding>) => void;
@@ -31,9 +26,13 @@
 
 	let { binding, onUpdate = () => {}, service = undefined, host = undefined }: Props = $props();
 
-	// Interface binding must have an interface_id - look up from query data
+	// Interface binding must have an interface_id - look up from host form data first (for unsaved hosts),
+	// then fall back to query data (for saved hosts)
 	let iface = $derived(
-		binding.interface_id ? interfacesData.find((i) => i.id === binding.interface_id) : null
+		binding.interface_id
+			? (host?.interfaces.find((i) => i.id === binding.interface_id) ??
+					interfacesData.find((i) => i.id === binding.interface_id))
+			: null
 	);
 
 	// Check if this service has a Port binding on "All Interfaces" (interface_id === null)
@@ -44,15 +43,6 @@
 	// Create interface options with disabled state
 	let interfaceOptions = $derived(
 		host?.interfaces.map((iface) => {
-			// Check if interface is unsaved (not in query cache) - can't bind until host is saved
-			if (isInterfaceUnsaved(iface.id)) {
-				return {
-					iface,
-					disabled: true,
-					reason: 'Save host first'
-				};
-			}
-
 			// Can't add Interface binding if service has Port binding on "All Interfaces"
 			if (hasPortBindingOnAllInterfaces && iface.id !== binding.interface_id) {
 				return {

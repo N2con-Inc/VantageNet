@@ -172,6 +172,7 @@ impl DiscoveryService {
                 metadata: serde_json::json!({
                     "trigger_stale": trigger_stale
                 }),
+
                 authentication,
             })
             .await?;
@@ -242,6 +243,7 @@ impl DiscoveryService {
                 metadata: serde_json::json!({
                     "trigger_stale": trigger_stale
                 }),
+
                 authentication,
             })
             .await?;
@@ -284,6 +286,7 @@ impl DiscoveryService {
                 metadata: serde_json::json!({
                     "trigger_stale": trigger_stale
                 }),
+
                 authentication,
             })
             .await?;

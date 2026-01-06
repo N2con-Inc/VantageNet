@@ -4,43 +4,47 @@
 		optionsPanelExpanded,
 		selectedEdge,
 		selectedNode,
-		topologies,
-		topology,
-		updateTopology
-	} from '../../store';
+		selectedTopologyId,
+		useTopologiesQuery,
+		useUpdateTopologyMutation
+	} from '../../queries';
 	import { type EdgeHandle, type TopologyEdge } from '../../types/base';
 	import BaseTopologyViewer from './BaseTopologyViewer.svelte';
 
-	let baseViewer: BaseTopologyViewer;
+	// TanStack Query hooks
+	const topologiesQuery = useTopologiesQuery();
+	const updateTopologyMutation = useUpdateTopologyMutation();
+
+	// Derived topology from query data
+	let topologiesData = $derived(topologiesQuery.data ?? []);
+	let topology = $derived(topologiesData.find((t) => t.id === $selectedTopologyId));
+
+	let baseViewer: BaseTopologyViewer | null = $state(null);
 
 	// Selection state synced with stores
 	let localSelectedNode: Node | null = $state(null);
 	let localSelectedEdge: Edge | null = $state(null);
-
-	// Keep effects to track store changes
-	$effect(() => {
-		void $topology;
-		void $topologies;
-	});
 
 	export function triggerFitView() {
 		baseViewer?.triggerFitView();
 	}
 
 	async function handleNodeDragStop(targetNode: Node) {
-		let movedNode = $topology.nodes.find((node) => node.id == targetNode?.id);
+		if (!topology) return;
+		let movedNode = topology.nodes.find((node) => node.id == targetNode?.id);
 		if (movedNode && targetNode && targetNode.position) {
 			movedNode.position.x = targetNode.position.x;
 			movedNode.position.y = targetNode.position.y;
-			await updateTopology($topology);
+			await updateTopologyMutation.mutateAsync(topology);
 		}
 	}
 
 	async function handleReconnect(edge: Edge, newConnection: Connection) {
+		if (!topology) return;
 		const edgeData = edge.data as TopologyEdge;
 
 		if ($selectedEdge && edge.id === $selectedEdge.id) {
-			let topologyEdge = $topology.edges.find((e) => e.id == edgeData.id);
+			let topologyEdge = topology.edges.find((e) => e.id == edgeData.id);
 			if (
 				topologyEdge &&
 				newConnection.source == topologyEdge.source &&
@@ -50,11 +54,11 @@
 			) {
 				topologyEdge.source_handle = newConnection.sourceHandle as EdgeHandle;
 				topologyEdge.target_handle = newConnection.targetHandle as EdgeHandle;
-				$topology = {
-					...$topology,
-					edges: [...$topology.edges]
+				const updatedTopology = {
+					...topology,
+					edges: [...topology.edges]
 				};
-				await updateTopology($topology);
+				await updateTopologyMutation.mutateAsync(updatedTopology);
 			}
 		}
 	}
@@ -77,18 +81,20 @@
 	}
 </script>
 
-<div class="h-[calc(100vh-150px)] w-full">
-	<BaseTopologyViewer
-		bind:this={baseViewer}
-		topology={$topology}
-		readonly={false}
-		showControls={true}
-		bind:selectedNode={localSelectedNode}
-		bind:selectedEdge={localSelectedEdge}
-		onNodeDragStop={handleNodeDragStop}
-		onReconnect={handleReconnect}
-		onNodeSelect={handleNodeSelect}
-		onEdgeSelect={handleEdgeSelect}
-		onPaneSelect={handlePaneSelect}
-	/>
-</div>
+{#if topology}
+	<div class="h-[calc(100vh-150px)] w-full">
+		<BaseTopologyViewer
+			bind:this={baseViewer}
+			{topology}
+			readonly={false}
+			showControls={true}
+			bind:selectedNode={localSelectedNode}
+			bind:selectedEdge={localSelectedEdge}
+			onNodeDragStop={handleNodeDragStop}
+			onReconnect={handleReconnect}
+			onNodeSelect={handleNodeSelect}
+			onEdgeSelect={handleEdgeSelect}
+			onPaneSelect={handlePaneSelect}
+		/>
+	</div>
+{/if}

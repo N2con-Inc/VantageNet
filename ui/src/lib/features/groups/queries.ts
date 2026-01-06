@@ -14,7 +14,7 @@ export function useGroupsQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.groups.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/groups');
+			const { data } = await apiClient.GET('/api/v1/groups');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch groups');
 			}
@@ -31,7 +31,7 @@ export function useCreateGroupMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (group: Group) => {
-			const { data } = await apiClient.POST('/api/groups', { body: group });
+			const { data } = await apiClient.POST('/api/v1/groups', { body: group });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create group');
 			}
@@ -55,7 +55,7 @@ export function useUpdateGroupMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (group: Group) => {
-			const { data } = await apiClient.PUT('/api/groups/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/groups/{id}', {
 				params: { path: { id: group.id } },
 				body: group
 			});
@@ -83,7 +83,7 @@ export function useDeleteGroupMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/groups/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/groups/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -110,7 +110,7 @@ export function useBulkDeleteGroupsMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/groups/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/groups/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete groups');
 			}

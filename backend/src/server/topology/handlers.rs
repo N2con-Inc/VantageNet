@@ -1,5 +1,5 @@
 use crate::server::{
-    auth::middleware::{auth::AuthenticatedUser, permissions::RequireMember},
+    auth::middleware::permissions::{Authorized, IsUser, Member, Viewer},
     config::AppState,
     shared::{
         events::types::{TelemetryEvent, TelemetryOperation},
@@ -60,15 +60,15 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "Topology updated", body = ApiResponse<Topology>),
         (status = 404, description = "Topology not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_topology(
     state: State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     id: Path<Uuid>,
     topology: Json<Topology>,
 ) -> ApiResult<Json<ApiResponse<Topology>>> {
-    update_handler::<Topology>(state, user, id, topology).await
+    update_handler::<Topology>(state, auth, id, topology).await
 }
 
 /// Get all topologies
@@ -79,14 +79,14 @@ async fn update_topology(
     responses(
         (status = 200, description = "List of topologies", body = ApiResponse<Vec<Topology>>),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_all_topologies(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Viewer>,
 ) -> ApiResult<Json<ApiResponse<Vec<Topology>>>> {
     let service = Topology::get_service(&state);
-    let filter = EntityFilter::unfiltered().network_ids(&user.network_ids);
+    let filter = EntityFilter::unfiltered().network_ids(&auth.network_ids());
     let entities = service.get_all(filter).await.map_err(|e| {
         tracing::error!(error = %e, "Failed to fetch topologies");
         ApiError::internal_error(&e.to_string())
@@ -104,17 +104,25 @@ async fn get_all_topologies(
         (status = 200, description = "Topology created", body = ApiResponse<Topology>),
         (status = 400, description = "Validation failed", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_topology(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(mut topology): Json<Topology>,
 ) -> ApiResult<Json<ApiResponse<Topology>>> {
+    let user_id = auth.user_id();
+    let network_ids = auth.network_ids();
+
+    // Validate user has access to this network
+    if !network_ids.contains(&topology.base.network_id) {
+        return Err(ApiError::forbidden("You don't have access to this network"));
+    }
+
     if let Err(err) = topology.validate() {
         tracing::warn!(
             entity_type = Topology::table_name(),
-            user_id = %user.user_id,
+            user_id = ?user_id,
             error = %err,
             "Entity validation failed"
         );
@@ -127,7 +135,7 @@ async fn create_topology(
 
     tracing::debug!(
         entity_type = Topology::table_name(),
-        user_id = %user.user_id,
+        user_id = ?user_id,
         "Create request received"
     );
 
@@ -167,13 +175,14 @@ async fn create_topology(
 
     topology.clear_stale();
 
+    let entity = auth.into_entity();
     let created = service
-        .create(topology, user.clone().into())
+        .create(topology, entity.clone())
         .await
         .map_err(|e| {
             tracing::error!(
                 entity_type = Topology::table_name(),
-                user_id = %user.user_id,
+                user_id = ?user_id,
                 error = %e,
                 "Failed to create entity"
             );
@@ -183,7 +192,7 @@ async fn create_topology(
     tracing::info!(
         entity_type = Topology::table_name(),
         entity_id = %created.id(),
-        user_id = %user.user_id,
+        user_id = ?user_id,
         "Entity created via API"
     );
 
@@ -199,14 +208,24 @@ async fn create_topology(
     request_body = Topology,
     responses(
         (status = 200, description = "Topology refreshed", body = EmptyApiResponse),
+        (status = 403, description = "Access denied", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn refresh(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(mut topology): Json<Topology>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    let network_ids = auth.network_ids();
+
+    // Validate user has access to this topology's network
+    if !network_ids.contains(&topology.base.network_id) {
+        return Err(ApiError::forbidden(
+            "You don't have access to this topology's network",
+        ));
+    }
+
     let service = Topology::get_service(&state);
 
     let (hosts, interfaces, subnets, groups, ports, bindings) =
@@ -226,7 +245,7 @@ async fn refresh(
         bindings,
     });
 
-    service.update(&mut topology, user.into()).await?;
+    service.update(&mut topology, auth.into_entity()).await?;
 
     // Return will be handled through event subscriber which triggers SSE
 
@@ -242,14 +261,24 @@ async fn refresh(
     request_body = Topology,
     responses(
         (status = 200, description = "Topology rebuilt", body = EmptyApiResponse),
+        (status = 403, description = "Access denied", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn rebuild(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(mut topology): Json<Topology>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    let network_ids = auth.network_ids();
+
+    // Validate user has access to this topology's network
+    if !network_ids.contains(&topology.base.network_id) {
+        return Err(ApiError::forbidden(
+            "You don't have access to this topology's network",
+        ));
+    }
+
     let service = Topology::get_service(&state);
 
     let (hosts, interfaces, subnets, groups, ports, bindings) =
@@ -286,31 +315,36 @@ async fn rebuild(
 
     topology.clear_stale();
 
-    service.update(&mut topology, user.clone().into()).await?;
+    let organization_id = auth.organization_id();
+    let entity = auth.into_entity();
 
-    let organization = state
-        .services
-        .organization_service
-        .get_by_id(&user.organization_id)
-        .await?;
+    service.update(&mut topology, entity.clone()).await?;
 
-    if let Some(organization) = organization
-        && organization.not_onboarded(&TelemetryOperation::FirstTopologyRebuild)
-    {
-        state
+    if let Some(org_id) = organization_id {
+        let organization = state
             .services
-            .event_bus
-            .publish_telemetry(TelemetryEvent {
-                id: Uuid::new_v4(),
-                organization_id: user.organization_id,
-                operation: TelemetryOperation::FirstTopologyRebuild,
-                timestamp: Utc::now(),
-                authentication: user.into(),
-                metadata: serde_json::json!({
-                    "is_onboarding_step": true
-                }),
-            })
+            .organization_service
+            .get_by_id(&org_id)
             .await?;
+
+        if let Some(organization) = organization
+            && organization.not_onboarded(&TelemetryOperation::FirstTopologyRebuild)
+        {
+            state
+                .services
+                .event_bus
+                .publish_telemetry(TelemetryEvent {
+                    id: Uuid::new_v4(),
+                    organization_id: entity.organization_id().expect("User should have org_id"),
+                    operation: TelemetryOperation::FirstTopologyRebuild,
+                    timestamp: Utc::now(),
+                    metadata: serde_json::json!({
+                        "is_onboarding_step": true
+                    }),
+                    authentication: entity,
+                })
+                .await?;
+        }
     }
 
     // Return will be handled through event subscriber which triggers SSE
@@ -324,23 +358,35 @@ async fn rebuild(
     path = "/{id}/lock",
     tags = ["topology"],
     params(("id" = Uuid, Path, description = "Topology ID")),
-    request_body = Topology,
     responses(
         (status = 200, description = "Topology locked", body = ApiResponse<Topology>),
+        (status = 403, description = "Access denied", body = ApiErrorResponse),
+        (status = 404, description = "Topology not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn lock(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<Topology>>> {
     let service = Topology::get_service(&state);
+    let network_ids = auth.network_ids();
+    let user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
 
     if let Some(mut topology) = service.get_by_id(&id).await? {
-        topology.lock(user.user_id);
+        // Validate user has access to this topology's network
+        if !network_ids.contains(&topology.base.network_id) {
+            return Err(ApiError::forbidden(
+                "You don't have access to this topology",
+            ));
+        }
 
-        let updated = service.update(&mut topology, user.into()).await?;
+        topology.lock(user_id);
+
+        let updated = service.update(&mut topology, auth.into_entity()).await?;
 
         Ok(Json(ApiResponse::success(updated)))
     } else {
@@ -357,23 +403,32 @@ async fn lock(
     path = "/{id}/unlock",
     tags = ["topology"],
     params(("id" = Uuid, Path, description = "Topology ID")),
-    request_body = Topology,
     responses(
         (status = 200, description = "Topology unlocked", body = ApiResponse<Topology>),
+        (status = 403, description = "Access denied", body = ApiErrorResponse),
+        (status = 404, description = "Topology not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn unlock(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<Topology>>> {
     let service = Topology::get_service(&state);
+    let network_ids = auth.network_ids();
 
     if let Some(mut topology) = service.get_by_id(&id).await? {
+        // Validate user has access to this topology's network
+        if !network_ids.contains(&topology.base.network_id) {
+            return Err(ApiError::forbidden(
+                "You don't have access to this topology",
+            ));
+        }
+
         topology.unlock();
 
-        let updated = service.update(&mut topology, user.into()).await?;
+        let updated = service.update(&mut topology, auth.into_entity()).await?;
 
         Ok(Json(ApiResponse::success(updated)))
     } else {
@@ -386,14 +441,14 @@ async fn unlock(
 
 async fn staleness_stream(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    auth: Authorized<IsUser>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let rx = state
         .services
         .topology_service
         .subscribe_staleness_changes();
 
-    let allowed_networks = user.network_ids;
+    let allowed_networks = auth.network_ids();
 
     let stream = stream::unfold(rx, move |mut rx| {
         let allowed = allowed_networks.clone();

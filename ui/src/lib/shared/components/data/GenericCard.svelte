@@ -3,7 +3,6 @@
 	import Tag from './Tag.svelte';
 	import type { Snippet } from 'svelte';
 	import { type IconComponent } from '$lib/shared/utils/types';
-	import GrowIconButton from './GrowIconButton.svelte';
 
 	interface Props {
 		title: string;
@@ -225,9 +224,45 @@
 				: 'card-divider-h mt-4 flex items-center justify-between pt-4'}
 		>
 			{#each actions as action, index (action.label)}
-				{@const isLeftEdge = index === 0}
-				{@const isRightEdge = index === actions.length - 1}
-				<GrowIconButton {action} {isLeftEdge} {isRightEdge} />
+				{@const cls = action.class ? action.class : 'btn-icon'}
+				{#if viewMode === 'card'}
+					{@const isLeftEdge = index === 0}
+					{@const isRightEdge = index === actions.length - 1}
+					<button
+						onclick={action.onClick}
+						disabled={action.disabled}
+						class="group relative overflow-visible transition-all duration-200 ease-in-out {cls}"
+						title={action.label}
+					>
+						<div class="flex items-center justify-center {action.forceLabel ? 'opacity-0' : ''}">
+							<action.icon size={16} class="flex-shrink-0 {action.animation || ''}" />
+						</div>
+
+						<div
+							class="absolute top-1/2 flex -translate-y-1/2 items-center justify-center whitespace-nowrap {action.disabled
+								? 'opacity-0'
+								: action.forceLabel
+									? 'opacity-100'
+									: 'opacity-0 transition-all duration-200 ease-in-out group-hover:opacity-100'} {isLeftEdge
+								? 'left-0'
+								: isRightEdge
+									? 'right-0'
+									: 'left-1/2 -translate-x-1/2'} {cls}"
+						>
+							<action.icon size={16} class="flex-shrink-0 {action.animation || ''}" />
+							<span class="ml-2">{action.label}</span>
+						</div>
+					</button>
+				{:else}
+					<button
+						onclick={action.onClick}
+						disabled={action.disabled}
+						class={cls}
+						title={action.label}
+					>
+						<action.icon size={16} class={action.animation || ''} />
+					</button>
+				{/if}
 			{/each}
 		</div>
 	{/if}

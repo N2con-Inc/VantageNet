@@ -8,7 +8,7 @@
 	import { identifyUser, trackPlunkEvent } from '$lib/shared/utils/analytics';
 	import Loading from '$lib/shared/components/feedback/Loading.svelte';
 	import { resolve } from '$app/paths';
-	import { resetTopologyOptions } from '$lib/features/topology/store';
+	import { resetTopologyOptions } from '$lib/features/topology/queries';
 	import { pushError, pushSuccess } from '$lib/shared/stores/feedback';
 	import { useConfigQuery } from '$lib/shared/stores/config-query';
 	import { isBillingPlanActive } from '$lib/features/organizations/types';
@@ -50,23 +50,27 @@
 		}
 	});
 
-	let posthogInitialized = false;
+	let posthogInitialized = $state(false);
+	let posthogInitStarted = false;
 
 	$effect(() => {
 		if (!configData) return;
 
 		const posthogKey = configData.posthog_key;
 
-		if (browser && posthogKey && !posthogInitialized) {
+		if (browser && posthogKey && !posthogInitStarted) {
+			posthogInitStarted = true;
 			posthog.init(posthogKey, {
 				api_host: 'https://ph.scanopy.net',
 				ui_host: 'https://us.posthog.com',
 				defaults: '2025-11-30',
 				secure_cookie: true,
 				persistence: 'memory',
-				opt_out_capturing_by_default: true
+				opt_out_capturing_by_default: true,
+				loaded: () => {
+					posthogInitialized = true;
+				}
 			});
-			posthogInitialized = true;
 		}
 	});
 

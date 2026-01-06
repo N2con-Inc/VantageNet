@@ -27,14 +27,78 @@ const INTERNAL_TAG: &str = "internal";
 #[openapi(
     info(
         title = "Scanopy API",
-        version = env!("CARGO_PKG_VERSION"),
-        description = "Network topology discovery and visualization API",
+        version = "1",
+        description = r#"
+Network topology discovery and visualization API.
+
+## Authentication
+
+Two authentication methods are supported:
+
+| Method | Header | Use Case |
+|--------|--------|----------|
+| User API key | `Authorization: Bearer scp_u_...` | Programmatic access, integrations |
+| Session cookie | `Cookie: session_id=...` | Web UI (via `/api/auth/login`) |
+
+User API keys require your organization to have API access enabled. Create keys at **Platform > API Keys**.
+
+## Rate Limiting
+
+Limit: 300 requests/minute
+
+Burst: 150
+
+Response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+
+When rate limited, you'll receive HTTP `429 Too Many Requests` with a `Retry-After` header.
+
+## Response Format
+
+All responses use a standard envelope:
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "api_version": 1,
+    "server_version": "0.12.10"
+  }
+}
+```
+
+Error responses include an `error` field instead of `data`:
+
+```json
+{
+  "success": false,
+  "error": "Resource not found",
+  "meta": { ... }
+}
+```
+
+**Common status codes:** `400` validation error, `401` unauthorized, `403` forbidden, `404` not found, `409` conflict, `429` rate limited.
+
+## Versioning
+
+The API version is an integer (`api_version: 1`) incremented only on breaking changes. API is versioned independently from the application. Endpoints are prefixed with `/api/v1/`. Check `GET /api/version` for current versions.
+
+## Multi-Tenancy
+
+Resources are scoped to your **organization** and **network(s)**:
+
+- You can only access entities within your organization
+- Network-level entities (hosts, services, etc.) are filtered to networks you have access to
+- Use `?network_id=<UUID>` to filter list endpoints to a specific network
+- API keys can be scoped to a subset of your accessible networks
+"#,
         license(name = "Dual (AGPL3.0, Commercial License Available)")
     ),
     tags(
         (name = "api_keys", description = "API keys for daemon authentication. Create and manage keys that allow daemons to communicate with the server."),
         (name = "auth", description = "Authentication and session management. Handle user login, logout, and session state."),
         (name = "config", description = "Server configuration. Public configuration settings for client applications."),
+        (name = "daemon_api_keys", description = "Daemon API keys for scanner authentication. Create and manage keys that allow daemons to authenticate with the server and submit discovery results."),
         (name = "discoveries", description = "Network discovery operations. Trigger and monitor scans that detect hosts, services, and network topology."),
         (name = "github", description = "GitHub integration endpoints."),
         (name = "ports", description = "Ports that have been scanned and found open on a host"),
@@ -45,13 +109,6 @@ const INTERNAL_TAG: &str = "internal";
             - **Port binding (specific interface)**: Service listens on a specific port on a specific interface.
             - **Port binding (all interfaces)**: Service listens on a specific port on all interfaces
               (`interface_id: null`).
-
-            ## Validation and Deduplication Rules
-            - **Conflict detection**: Interface bindings conflict with port bindings on the same interface.
-              A port binding on all interfaces conflicts with any interface binding for the same service.
-            - **All-interfaces precedence**: When creating a port binding with `interface_id: null`,
-              any existing specific-interface bindings for the same port are automatically removed,
-              as they are superseded by the all-interfaces binding.
         "),
         (name = "groups", description = "Logical groupings of hosts. Organize hosts into groups for easier management and visualization."),
         (name = "hosts", description = "Network hosts (devices). Manage discovered or manually created hosts on your network."),
@@ -64,7 +121,9 @@ const INTERNAL_TAG: &str = "internal";
         (name = "services", description = "Services running on hosts. Detected or manually added services like databases, web servers, etc."),
         (name = "shares", description = "Shared network views. Create read-only shareable links to your network topology."),
         (name = "subnets", description = "IP subnets within networks. Define address ranges and organize hosts by subnet."),
+        (name = "system", description = "System information endpoints. Version and compatibility checking."),
         (name = "tags", description = "Custom tags for categorization. Apply labels to entities for filtering and organization."),
+        (name = "user_api_keys", description = "User API keys for programmatic access. Create and manage personal API keys with scoped permissions for automation and integrations."),
         (name = "users", description = "User account management. Manage user profiles and permissions within organizations."),
     )
 )]
@@ -105,18 +164,30 @@ pub fn build_openapi(paths_from_handlers: OpenApi) -> OpenApi {
 fn add_security_schemes(spec: &mut OpenApi) {
     let components = spec.components.get_or_insert_with(Components::default);
 
-    // Session cookie authentication (used by web UI)
+    // User API key authentication (most common for API consumers)
     components.security_schemes.insert(
-        "session_id".to_string(),
-        SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::new("session_id"))),
+        "user_api_key".to_string(),
+        SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
+            "Authorization",
+            "User API key (Bearer scp_u_...). Create in Platform > API Keys.",
+        ))),
     );
 
-    // API key authentication (used by daemons)
+    // Daemon API key authentication
     components.security_schemes.insert(
-        "api_key".to_string(),
+        "daemon_api_key".to_string(),
         SecurityScheme::ApiKey(ApiKey::Header(ApiKeyValue::with_description(
-            "Authorization: Bearer",
-            "API key for daemon authentication. Generate keys in the web UI under Settings > API Keys.",
+            "Authorization",
+            "Daemon API key (Bearer scp_d_...). Requires X-Daemon-ID header.",
+        ))),
+    );
+
+    // Session cookie authentication (used by web UI)
+    components.security_schemes.insert(
+        "session".to_string(),
+        SecurityScheme::ApiKey(ApiKey::Cookie(ApiKeyValue::with_description(
+            "session_id",
+            "Browser session cookie. Obtained via /api/auth/login.",
         ))),
     );
 }

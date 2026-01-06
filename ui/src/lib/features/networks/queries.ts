@@ -20,7 +20,7 @@ export function useNetworksQuery() {
 			if (!user) {
 				return [];
 			}
-			const { data } = await apiClient.GET('/api/networks');
+			const { data } = await apiClient.GET('/api/v1/networks');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch networks');
 			}
@@ -37,7 +37,7 @@ export function useCreateNetworkMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (network: Network) => {
-			const { data } = await apiClient.POST('/api/networks', { body: network });
+			const { data } = await apiClient.POST('/api/v1/networks', { body: network });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create network');
 			}
@@ -59,7 +59,7 @@ export function useUpdateNetworkMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (network: Network) => {
-			const { data } = await apiClient.PUT('/api/networks/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/networks/{id}', {
 				params: { path: { id: network.id } },
 				body: network
 			});
@@ -85,7 +85,7 @@ export function useDeleteNetworkMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/networks/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/networks/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -110,7 +110,7 @@ export function useBulkDeleteNetworksMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/networks/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/networks/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete networks');
 			}

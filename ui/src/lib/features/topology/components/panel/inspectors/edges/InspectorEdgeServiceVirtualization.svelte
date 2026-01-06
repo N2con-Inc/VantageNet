@@ -3,8 +3,11 @@
 	import EntityDisplayWrapper from '$lib/shared/components/forms/selection/display/EntityDisplayWrapper.svelte';
 	import { ServiceDisplay } from '$lib/shared/components/forms/selection/display/ServiceDisplay.svelte';
 	import { SubnetDisplay } from '$lib/shared/components/forms/selection/display/SubnetDisplay.svelte';
-	import { useTopologiesQuery } from '$lib/features/topology/queries';
-	import { topology as selectedTopology, topologyOptions } from '$lib/features/topology/store';
+	import {
+		useTopologiesQuery,
+		selectedTopologyId,
+		topologyOptions
+	} from '$lib/features/topology/queries';
 	import type { Topology } from '$lib/features/topology/types/base';
 	import { HostDisplay } from '$lib/shared/components/forms/selection/display/HostDisplay.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
@@ -22,9 +25,7 @@
 	let servicesData = $derived(servicesQuery.data ?? []);
 	let topologiesData = $derived(topologiesQuery.data ?? []);
 	let topology = $derived(
-		topologyContext
-			? $topologyContext
-			: (topologiesData.find((t) => t.id === $selectedTopology?.id) ?? $selectedTopology)
+		topologyContext ? $topologyContext : topologiesData.find((t) => t.id === $selectedTopologyId)
 	);
 
 	let containerizingService = $derived(

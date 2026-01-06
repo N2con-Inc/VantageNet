@@ -24,7 +24,7 @@ services:
     build: 
       context: ./backend
       dockerfile: Dockerfile.dev
-    command: sh -c "cargo run --bin server"
+    command: sh -c "cargo run --bin server --features generate-fixtures"
     ports:
       - "60072:60072"
     environment:
@@ -77,7 +77,7 @@ services:
       - cargo-cache:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
       - rust-target:/app/target
-    command: sh -c "cargo run --bin daemon"
+    command: sh -c "cargo run --bin daemon --features generate-fixtures"
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:60073/api/health || exit 1"]
       interval: 5s

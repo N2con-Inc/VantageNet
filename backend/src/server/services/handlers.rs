@@ -1,4 +1,4 @@
-use crate::server::auth::middleware::permissions::RequireMember;
+use crate::server::auth::middleware::permissions::{Authorized, Member};
 use crate::server::shared::handlers::traits::update_handler;
 use crate::server::shared::services::traits::CrudService;
 use crate::server::shared::types::api::{ApiError, ApiErrorResponse, ApiResponse, ApiResult};
@@ -58,15 +58,15 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "Service created successfully", body = ApiResponse<Service>),
         (status = 400, description = "Validation error: host network mismatch, cross-host binding, or binding conflict", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn create_service(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(request): Json<CreateServiceRequest>,
 ) -> ApiResult<Json<ApiResponse<Service>>> {
     // Validate user has access to the network
-    validate_network_access(Some(request.network_id()), &user.network_ids, "create")?;
+    validate_network_access(Some(request.network_id()), &auth.network_ids(), "create")?;
 
     // Custom validation: Check host network matches service network
     if let Some(host) = state
@@ -90,7 +90,7 @@ pub async fn create_service(
     let created = state
         .services
         .service_service
-        .create(service, user.into())
+        .create(service, auth.into_entity())
         .await?;
 
     Ok(Json(ApiResponse::success(created)))
@@ -119,11 +119,11 @@ pub async fn create_service(
         (status = 400, description = "Validation error: host network mismatch, cross-host binding, or binding conflict", body = ApiErrorResponse),
         (status = 404, description = "Service not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn update_service(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
     Json(service): Json<Service>,
 ) -> ApiResult<Json<ApiResponse<Service>>> {
@@ -142,5 +142,5 @@ pub async fn update_service(
     }
 
     // Delegate to generic handler (handles validation, auth checks, update)
-    update_handler::<Service>(State(state), user, Path(id), Json(service)).await
+    update_handler::<Service>(State(state), auth, Path(id), Json(service)).await
 }

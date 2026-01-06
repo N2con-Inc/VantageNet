@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use strum_macros::{Display, EnumDiscriminants, EnumIter, IntoStaticStr};
 
 use crate::server::{
-    api_keys::r#impl::base::ApiKey,
+    daemon_api_keys::r#impl::base::DaemonApiKey,
     daemons::r#impl::base::Daemon,
     discovery::r#impl::base::Discovery,
     hosts::r#impl::base::Host,
@@ -21,6 +21,7 @@ use crate::server::{
         Color, Icon,
         metadata::{EntityMetadataProvider, HasId},
     },
+    user_api_keys::r#impl::base::UserApiKey,
     users::r#impl::base::User,
 };
 
@@ -47,7 +48,8 @@ pub enum Entity {
     Invite(Invite),
     Share(Share),
     Network(Network),
-    ApiKey(ApiKey),
+    DaemonApiKey(DaemonApiKey),
+    UserApiKey(UserApiKey),
     User(User),
     Tag(Tag),
 
@@ -78,7 +80,8 @@ impl EntityMetadataProvider for EntityDiscriminants {
             EntityDiscriminants::Network => Color::Gray,
             EntityDiscriminants::Daemon => Color::Green,
             EntityDiscriminants::Discovery => Color::Green,
-            EntityDiscriminants::ApiKey => Color::Yellow,
+            EntityDiscriminants::DaemonApiKey => Color::Yellow,
+            EntityDiscriminants::UserApiKey => Color::Yellow,
             EntityDiscriminants::User => Color::Blue,
             EntityDiscriminants::Invite => Color::Green,
             EntityDiscriminants::Share => Color::Teal,
@@ -104,7 +107,8 @@ impl EntityMetadataProvider for EntityDiscriminants {
             EntityDiscriminants::Tag => Icon::Tag,
             EntityDiscriminants::Invite => Icon::UserPlus,
             EntityDiscriminants::Share => Icon::Share2,
-            EntityDiscriminants::ApiKey => Icon::Key,
+            EntityDiscriminants::DaemonApiKey => Icon::Key,
+            EntityDiscriminants::UserApiKey => Icon::Key,
             EntityDiscriminants::Daemon => Icon::SatelliteDish,
             EntityDiscriminants::Discovery => Icon::Radar,
             EntityDiscriminants::Host => Icon::Server,
@@ -143,9 +147,15 @@ impl From<Network> for Entity {
     }
 }
 
-impl From<ApiKey> for Entity {
-    fn from(value: ApiKey) -> Self {
-        Self::ApiKey(value)
+impl From<DaemonApiKey> for Entity {
+    fn from(value: DaemonApiKey) -> Self {
+        Self::DaemonApiKey(value)
+    }
+}
+
+impl From<UserApiKey> for Entity {
+    fn from(value: UserApiKey) -> Self {
+        Self::UserApiKey(value)
     }
 }
 

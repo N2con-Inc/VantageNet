@@ -19,6 +19,9 @@
 	import { useHostsQuery } from '$lib/features/hosts/queries';
 	import { useServicesQuery } from '$lib/features/services/queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const tagsQuery = useTagsQuery();
@@ -155,9 +158,11 @@
 	<!-- Header -->
 	<TabHeader title="Subnets" subtitle="Manage network subnets and IP ranges">
 		<svelte:fragment slot="actions">
-			<button class="btn-primary flex items-center" onclick={handleCreateSubnet}
-				><Plus class="h-5 w-5" />Create Subnet</button
-			>
+			{#if !isReadOnly}
+				<button class="btn-primary flex items-center" onclick={handleCreateSubnet}
+					><Plus class="h-5 w-5" />Create Subnet</button
+				>
+			{/if}
 		</svelte:fragment>
 	</TabHeader>
 
@@ -177,7 +182,7 @@
 			items={subnetsData}
 			fields={subnetFields}
 			storageKey="scanopy-subnets-table-state"
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			getItemId={(item) => item.id}
 		>
 			{#snippet children(
@@ -191,8 +196,8 @@
 					selected={isSelected}
 					{onSelectionChange}
 					{viewMode}
-					onEdit={handleEditSubnet}
-					onDelete={handleDeleteSubnet}
+					onEdit={isReadOnly ? undefined : handleEditSubnet}
+					onDelete={isReadOnly ? undefined : handleDeleteSubnet}
 				/>
 			{/snippet}
 		</DataControls>

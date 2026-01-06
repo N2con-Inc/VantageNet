@@ -17,6 +17,9 @@
 	} from '../queries';
 	import { useHostsQuery } from '$lib/features/hosts/queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const tagsQuery = useTagsQuery();
@@ -182,7 +185,7 @@
 			items={servicesData}
 			fields={serviceFields}
 			storageKey="scanopy-services-table-state"
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			getItemId={(item) => item.id}
 		>
 			{#snippet children(
@@ -199,8 +202,8 @@
 						{host}
 						{onSelectionChange}
 						{viewMode}
-						onDelete={handleDeleteService}
-						onEdit={handleEditService}
+						onDelete={isReadOnly ? undefined : handleDeleteService}
+						onEdit={isReadOnly ? undefined : handleEditService}
 					/>
 				{/if}
 			{/snippet}

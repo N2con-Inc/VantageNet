@@ -1,11 +1,12 @@
 use crate::server::{
-    api_keys::r#impl::base::ApiKey, bindings::r#impl::base::Binding, daemons::r#impl::base::Daemon,
-    discovery::r#impl::base::Discovery, group_bindings::GroupBinding, groups::r#impl::base::Group,
-    hosts::r#impl::base::Host, interfaces::r#impl::base::Interface, invites::r#impl::base::Invite,
-    networks::r#impl::Network, organizations::r#impl::base::Organization,
-    ports::r#impl::base::Port, services::r#impl::base::Service,
-    shared::storage::traits::StorableEntity, shares::r#impl::base::Share,
-    subnets::r#impl::base::Subnet, tags::r#impl::base::Tag, topology::types::base::Topology,
+    bindings::r#impl::base::Binding, daemon_api_keys::r#impl::base::DaemonApiKey,
+    daemons::r#impl::base::Daemon, discovery::r#impl::base::Discovery,
+    group_bindings::GroupBinding, groups::r#impl::base::Group, hosts::r#impl::base::Host,
+    interfaces::r#impl::base::Interface, invites::r#impl::base::Invite, networks::r#impl::Network,
+    organizations::r#impl::base::Organization, ports::r#impl::base::Port,
+    services::r#impl::base::Service, shared::storage::traits::StorableEntity,
+    shares::r#impl::base::Share, subnets::r#impl::base::Subnet, tags::r#impl::base::Tag,
+    topology::types::base::Topology, user_api_keys::r#impl::base::UserApiKey,
     users::r#impl::base::User,
 };
 use sqlx::postgres::PgRow;
@@ -16,7 +17,7 @@ use std::collections::HashMap;
 type DeserializeFn = Box<dyn Fn(&PgRow) -> Result<(), anyhow::Error> + Send + Sync>;
 
 #[allow(dead_code)]
-const TABLES_WITHOUT_ENTITIES: [&str; 1] = ["user_network_access"];
+const TABLES_WITHOUT_ENTITIES: [&str; 2] = ["user_network_access", "user_api_key_network_access"];
 
 // Mapping from table name to deserialization function
 #[allow(dead_code)]
@@ -24,9 +25,9 @@ fn get_entity_deserializers() -> HashMap<&'static str, DeserializeFn> {
     let mut map: HashMap<&'static str, DeserializeFn> = HashMap::new();
 
     map.insert(
-        ApiKey::table_name(),
+        DaemonApiKey::table_name(),
         Box::new(|row| {
-            ApiKey::from_row(row)?;
+            DaemonApiKey::from_row(row)?;
             Ok(())
         }),
     );
@@ -163,6 +164,14 @@ fn get_entity_deserializers() -> HashMap<&'static str, DeserializeFn> {
         GroupBinding::table_name(),
         Box::new(|row| {
             GroupBinding::from_row(row)?;
+            Ok(())
+        }),
+    );
+
+    map.insert(
+        UserApiKey::table_name(),
+        Box::new(|row| {
+            UserApiKey::from_row(row)?;
             Ok(())
         }),
     );

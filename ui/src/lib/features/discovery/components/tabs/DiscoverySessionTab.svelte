@@ -3,33 +3,31 @@
 	import EmptyState from '$lib/shared/components/layout/EmptyState.svelte';
 	import type { FieldConfig } from '$lib/shared/components/data/types';
 	import DataControls from '$lib/shared/components/data/DataControls.svelte';
-	import { getActiveSessions, sessions } from '../../sse';
+	import { useActiveSessionsQuery, useCancelDiscoveryMutation } from '../../queries';
 	import DiscoverySessionCard from '../cards/DiscoverySessionCard.svelte';
 	import { type DiscoveryUpdatePayload } from '../../types/api';
 	import { formatTimestamp } from '$lib/shared/utils/formatting';
 	import { useDaemonsQuery } from '$lib/features/daemons/queries';
 	import Loading from '$lib/shared/components/feedback/Loading.svelte';
-	import { onMount } from 'svelte';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const daemonsQuery = useDaemonsQuery();
+	const sessionsQuery = useActiveSessionsQuery();
+
+	// Mutations
+	const cancelDiscoveryMutation = useCancelDiscoveryMutation();
 
 	// Derived data
 	let daemonsData = $derived(daemonsQuery.data ?? []);
-	let isLoading = $derived(daemonsQuery.isPending);
+	let sessionsList = $derived(sessionsQuery.data ?? []);
+	let isLoading = $derived(daemonsQuery.isPending || sessionsQuery.isPending);
 
-	let sessionsList = $state<DiscoveryUpdatePayload[]>([]);
-
-	onMount(() => {
-		// Fetch active sessions on mount
-		getActiveSessions();
-
-		const unsubscribe = sessions.subscribe((value) => {
-			sessionsList = value;
-		});
-
-		return unsubscribe;
-	});
+	function handleCancelDiscovery(sessionId: string) {
+		cancelDiscoveryMutation.mutate(sessionId);
+	}
 
 	let discoveryFields = $derived.by((): FieldConfig<DiscoveryUpdatePayload>[] => [
 		{
@@ -106,7 +104,11 @@
 			getItemId={(item) => item.session_id}
 		>
 			{#snippet children(item: DiscoveryUpdatePayload, viewMode: 'card' | 'list')}
-				<DiscoverySessionCard session={item} {viewMode} />
+				<DiscoverySessionCard
+					session={item}
+					{viewMode}
+					onCancel={isReadOnly ? undefined : handleCancelDiscovery}
+				/>
 			{/snippet}
 		</DataControls>
 	{/if}

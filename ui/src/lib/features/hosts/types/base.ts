@@ -13,13 +13,13 @@ export type TransportProtocol = components['schemas']['TransportProtocol'];
 // API response type (host with hydrated children)
 export type HostResponse = components['schemas']['HostResponse'];
 
-// API request types
+// API request types - consolidated input types (used for both create and update)
 export type CreateHostRequest = components['schemas']['CreateHostRequest'];
-export type CreateInterfaceInput = components['schemas']['CreateInterfaceInput'];
-export type CreatePortInput = components['schemas']['CreatePortInput'];
 export type UpdateHostRequest = components['schemas']['UpdateHostRequest'];
-export type UpdateInterfaceInput = components['schemas']['UpdateInterfaceInput'];
-export type UpdatePortInput = components['schemas']['UpdatePortInput'];
+export type InterfaceInput = components['schemas']['InterfaceInput'];
+export type PortInput = components['schemas']['PortInput'];
+export type ServiceInput = components['schemas']['ServiceInput'];
+export type BindingInput = components['schemas']['BindingInput'];
 
 // Form state type for creating/editing hosts
 // Includes children arrays for form editing - distinct from HostResponse (API response type)

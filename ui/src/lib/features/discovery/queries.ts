@@ -3,9 +3,13 @@
  */
 
 import { createQuery, createMutation, useQueryClient } from '@tanstack/svelte-query';
-import { queryKeys } from '$lib/api/query-client';
+import { queryClient, queryKeys } from '$lib/api/query-client';
 import { apiClient } from '$lib/api/client';
 import type { Discovery } from './types/base';
+import type { DiscoveryUpdatePayload } from './types/api';
+import { pushError, pushSuccess, pushWarning } from '$lib/shared/stores/feedback';
+import { BaseSSEManager, type SSEConfig } from '$lib/shared/utils/sse';
+import { writable } from 'svelte/store';
 
 /**
  * Query hook for fetching all discoveries
@@ -14,7 +18,7 @@ export function useDiscoveriesQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.discovery.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/discovery');
+			const { data } = await apiClient.GET('/api/v1/discovery');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch discoveries');
 			}
@@ -31,7 +35,7 @@ export function useCreateDiscoveryMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (discovery: Discovery) => {
-			const { data } = await apiClient.POST('/api/discovery', { body: discovery });
+			const { data } = await apiClient.POST('/api/v1/discovery', { body: discovery });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create discovery');
 			}
@@ -53,7 +57,7 @@ export function useUpdateDiscoveryMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (discovery: Discovery) => {
-			const { data } = await apiClient.PUT('/api/discovery/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/discovery/{id}', {
 				params: { path: { id: discovery.id } },
 				body: discovery
 			});
@@ -79,7 +83,7 @@ export function useDeleteDiscoveryMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/discovery/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/discovery/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -104,7 +108,7 @@ export function useBulkDeleteDiscoveriesMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/discovery/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/discovery/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete discoveries');
 			}
@@ -243,3 +247,195 @@ export const discoveryFields = (daemons: Daemon[]): FieldConfig<Discovery>[] => 
 		getValue: (item: Discovery) => item.discovery_type.type
 	}
 ];
+
+// ============================================================================
+// Discovery Sessions (TanStack Query + SSE)
+// ============================================================================
+
+/**
+ * Store for tracking which sessions are being cancelled
+ * This is UI-only state, not server data
+ */
+export const cancellingSessions = writable<Map<string, boolean>>(new Map());
+
+/**
+ * Query hook for fetching active discovery sessions
+ */
+export function useActiveSessionsQuery() {
+	return createQuery(() => ({
+		queryKey: queryKeys.discovery.sessions(),
+		queryFn: async () => {
+			const { data } = await apiClient.GET('/api/v1/discovery/active-sessions', {});
+			if (!data?.success || !data.data) {
+				throw new Error(data?.error || 'Failed to fetch active sessions');
+			}
+			return data.data as DiscoveryUpdatePayload[];
+		},
+		// Sessions change frequently, keep fresh
+		staleTime: 5 * 1000
+	}));
+}
+
+/**
+ * Mutation hook for initiating a discovery session
+ */
+export function useInitiateDiscoveryMutation() {
+	const qc = useQueryClient();
+
+	return createMutation(() => ({
+		mutationFn: async (discoveryId: string) => {
+			const { data: result } = await apiClient.POST('/api/v1/discovery/start-session', {
+				body: discoveryId
+			});
+			if (!result?.success || !result.data) {
+				throw new Error(result?.error || 'Failed to initiate discovery');
+			}
+			return result.data as DiscoveryUpdatePayload;
+		},
+		onSuccess: (session: DiscoveryUpdatePayload) => {
+			// Add session to cache
+			qc.setQueryData<DiscoveryUpdatePayload[]>(queryKeys.discovery.sessions(), (old) => {
+				if (!old) return [session];
+				const exists = old.find((s) => s.session_id === session.session_id);
+				if (exists) {
+					return old.map((s) => (s.session_id === session.session_id ? session : s));
+				}
+				return [...old, session];
+			});
+
+			// Connect SSE to receive updates
+			discoverySSEManager.connect();
+
+			pushSuccess(
+				`${session.discovery_type.type} discovery session created with session ID ${session.session_id}`
+			);
+		}
+	}));
+}
+
+/**
+ * Mutation hook for cancelling a discovery session
+ */
+export function useCancelDiscoveryMutation() {
+	return createMutation(() => ({
+		mutationFn: async (sessionId: string) => {
+			// Mark as cancelling
+			cancellingSessions.update((c) => {
+				const m = new Map(c);
+				m.set(sessionId, true);
+				return m;
+			});
+
+			const { data: result } = await apiClient.POST('/api/v1/discovery/{session_id}/cancel', {
+				params: { path: { session_id: sessionId } }
+			});
+
+			if (!result?.success) {
+				// Clear cancelling state on failure
+				cancellingSessions.update((c) => {
+					const m = new Map(c);
+					m.delete(sessionId);
+					return m;
+				});
+				throw new Error(result?.error || 'Failed to cancel discovery');
+			}
+
+			return sessionId;
+		},
+		onError: () => {
+			pushError('Failed to cancel discovery');
+		}
+		// Note: Success handling happens via SSE when the "Cancelled" phase is received
+	}));
+}
+
+// ============================================================================
+// Discovery SSE Manager
+// ============================================================================
+
+// Track last known progress per session to detect changes
+const lastProgress = new Map<string, number>();
+
+class DiscoverySSEManager extends BaseSSEManager<DiscoveryUpdatePayload> {
+	protected createConfig(): SSEConfig<DiscoveryUpdatePayload> {
+		return {
+			url: '/api/v1/discovery/stream',
+			onMessage: async (update) => {
+				// Check if progress increased
+				const last = lastProgress.get(update.session_id) || 0;
+				const current = update.progress || 0;
+
+				if (current > last) {
+					// Invalidate queries to refresh data
+					queryClient.invalidateQueries({ queryKey: queryKeys.hosts.all });
+					queryClient.invalidateQueries({ queryKey: queryKeys.services.all });
+					queryClient.invalidateQueries({ queryKey: queryKeys.subnets.all });
+					queryClient.invalidateQueries({ queryKey: queryKeys.daemons.all });
+					lastProgress.set(update.session_id, current);
+				}
+
+				// Handle terminal phases
+				if (update.phase === 'Complete') {
+					pushSuccess(`${update.discovery_type.type} discovery completed`);
+					// Final refresh on completion
+					await Promise.all([
+						queryClient.invalidateQueries({ queryKey: queryKeys.hosts.all }),
+						queryClient.invalidateQueries({ queryKey: queryKeys.services.all }),
+						queryClient.invalidateQueries({ queryKey: queryKeys.subnets.all }),
+						queryClient.invalidateQueries({ queryKey: queryKeys.daemons.all }),
+						queryClient.invalidateQueries({ queryKey: queryKeys.discovery.all })
+					]);
+				} else if (update.phase === 'Cancelled') {
+					pushWarning(`Discovery cancelled`);
+				} else if (update.phase === 'Failed' && update.error) {
+					pushError(`Discovery error: ${update.error}`, -1);
+				}
+
+				// Update sessions in TanStack cache
+				queryClient.setQueryData<DiscoveryUpdatePayload[]>(
+					queryKeys.discovery.sessions(),
+					(current) => {
+						if (!current) current = [];
+
+						// Cleanup for terminal phases
+						if (
+							update.phase === 'Complete' ||
+							update.phase === 'Cancelled' ||
+							update.phase === 'Failed'
+						) {
+							// Clear cancelling state
+							cancellingSessions.update((c) => {
+								const m = new Map(c);
+								m.delete(update.session_id);
+								return m;
+							});
+
+							lastProgress.delete(update.session_id);
+
+							// Remove completed/cancelled/failed sessions
+							return current.filter((session) => session.session_id !== update.session_id);
+						}
+
+						// For non-terminal phases, update or add the session
+						const existingIndex = current.findIndex((s) => s.session_id === update.session_id);
+
+						if (existingIndex >= 0) {
+							const updated = [...current];
+							updated[existingIndex] = update;
+							return updated;
+						} else {
+							return [...current, update];
+						}
+					}
+				);
+			},
+			onError: (error) => {
+				console.error('Discovery SSE error:', error);
+				pushError('Lost connection to discovery updates');
+			},
+			onOpen: () => {}
+		};
+	}
+}
+
+export const discoverySSEManager = new DiscoverySSEManager();

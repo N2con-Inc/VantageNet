@@ -323,6 +323,20 @@ impl BillingService {
         cancel_url: String,
         authentication: AuthenticatedEntity,
     ) -> Result<CheckoutSession, Error> {
+        // Check if this is a returning customer (already has a Stripe customer ID)
+        let is_returning_customer = if let Some(organization) = self
+            .organization_service
+            .get_by_id(&organization_id)
+            .await?
+        {
+            Ok(organization.base.stripe_customer_id.is_some())
+        } else {
+            Err(anyhow!(
+                "Could not find an organization with id {}",
+                organization_id
+            ))
+        }?;
+
         // Get or create Stripe customer
         let (_, customer_id) = self
             .get_or_create_customer(organization_id, authentication)
@@ -333,7 +347,8 @@ impl BillingService {
             .await?
             .ok_or_else(|| anyhow!("Could not find base price for selected plan"))?;
 
-        let trial_days = if plan.config().trial_days == 0 {
+        // Only apply trial if plan has trial days AND customer is new (not returning)
+        let trial_days = if is_returning_customer || plan.config().trial_days == 0 {
             None
         } else {
             Some(plan.config().trial_days)
@@ -686,22 +701,20 @@ impl BillingService {
             && organization.not_onboarded(&TelemetryOperation::CommercialPlanSelected)
             && organization.not_onboarded(&TelemetryOperation::PersonalPlanSelected)
         {
-            let operation = if plan.is_commercial() {
-                TelemetryOperation::CommercialPlanSelected
-            } else {
-                TelemetryOperation::PersonalPlanSelected
-            };
-
+            let authentication: AuthenticatedEntity = owner.clone().into();
             self.event_bus
                 .publish_telemetry(TelemetryEvent {
                     id: Uuid::new_v4(),
-                    authentication: owner.clone().into(),
                     organization_id: organization.id,
-                    operation,
+                    operation: TelemetryOperation::PlanSelected,
                     timestamp: Utc::now(),
                     metadata: serde_json::json!({
-                        "is_onboarding_step": true
+                        "is_onboarding_step": true,
+                        "plan": plan.to_string(),
+                        "is_commercial": plan.is_commercial()
                     }),
+
+                    authentication,
                 })
                 .await?;
         }

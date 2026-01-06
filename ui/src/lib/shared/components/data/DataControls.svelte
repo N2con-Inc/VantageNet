@@ -205,7 +205,8 @@
 					// Track all state that should trigger saves
 					void searchQuery;
 					void filterState;
-					void sortState;
+					void sortState.field;
+					void sortState.direction;
 					void selectedGroupField;
 					void showFilters;
 					void viewMode;

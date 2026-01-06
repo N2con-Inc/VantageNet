@@ -4,14 +4,9 @@
 //! company with MSP operations. The data includes multiple networks, subnets, hosts,
 //! services, daemons, API keys, tags, and groups.
 
-use chrono::{DateTime, Utc};
-use cidr::{IpCidr, Ipv4Cidr};
-use std::net::{IpAddr, Ipv4Addr};
-use uuid::Uuid;
-
 use crate::server::{
-    api_keys::r#impl::base::{ApiKey, ApiKeyBase},
     bindings::r#impl::base::Binding,
+    daemon_api_keys::r#impl::base::{DaemonApiKey, DaemonApiKeyBase},
     daemons::r#impl::{
         api::DaemonCapabilities,
         base::{Daemon, DaemonBase, DaemonMode},
@@ -39,6 +34,11 @@ use crate::server::{
         edges::EdgeStyle,
     },
 };
+use chrono::{DateTime, Utc};
+use cidr::{IpCidr, Ipv4Cidr};
+use semver::Version;
+use std::net::{IpAddr, Ipv4Addr};
+use uuid::Uuid;
 
 // ============================================================================
 // Demo Data Container
@@ -59,7 +59,7 @@ pub struct DemoData {
     pub subnets: Vec<Subnet>,
     pub hosts_with_services: Vec<HostWithServices>,
     pub daemons: Vec<Daemon>,
-    pub api_keys: Vec<ApiKey>,
+    pub api_keys: Vec<DaemonApiKey>,
     pub groups: Vec<Group>,
     pub topologies: Vec<Topology>,
 }
@@ -68,7 +68,7 @@ impl DemoData {
     /// Generate all demo data for the given organization
     /// Note: Groups are intentionally empty - they must be generated after services are created
     /// because group bindings reference actual service binding IDs from the database.
-    pub fn generate(organization_id: Uuid) -> Self {
+    pub fn generate(organization_id: Uuid, user_id: Uuid) -> Self {
         let now = Utc::now();
 
         // Generate all entities in dependency order
@@ -80,7 +80,7 @@ impl DemoData {
         // Collect hosts for daemon generation
         let hosts: Vec<&Host> = hosts_with_services.iter().map(|h| &h.host).collect();
 
-        let daemons = generate_daemons(&networks, &hosts, &subnets, now);
+        let daemons = generate_daemons(&networks, &hosts, &subnets, now, user_id);
         let api_keys = generate_api_keys(&networks, now);
         let topologies = generate_topologies(&networks, now);
 
@@ -499,6 +499,7 @@ fn create_service(
                 virtualization: None,
                 source: EntitySource::Manual,
                 tags,
+                position: 0,
             },
         },
         port,
@@ -1359,6 +1360,7 @@ fn generate_daemons(
     hosts: &[&Host],
     subnets: &[Subnet],
     now: DateTime<Utc>,
+    user_id: Uuid,
 ) -> Vec<Daemon> {
     let find_network = |name: &str| {
         networks
@@ -1390,6 +1392,10 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "HQ Daemon".to_string(),
                 tags: vec![],
+                version: Version::parse(env!("CARGO_PKG_VERSION"))
+                    .map(Some)
+                    .unwrap_or_default(),
+                user_id,
             },
         });
     }
@@ -1415,6 +1421,10 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "Cloud Daemon".to_string(),
                 tags: vec![],
+                version: Version::parse(env!("CARGO_PKG_VERSION"))
+                    .map(Some)
+                    .unwrap_or_default(),
+                user_id,
             },
         });
     }
@@ -1439,6 +1449,10 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "Denver Daemon".to_string(),
                 tags: vec![],
+                version: Version::parse(env!("CARGO_PKG_VERSION"))
+                    .map(Some)
+                    .unwrap_or_default(),
+                user_id,
             },
         });
     }
@@ -1462,6 +1476,8 @@ fn generate_daemons(
                 mode: DaemonMode::Push,
                 name: "Riverside Daemon".to_string(),
                 tags: vec![],
+                version: None,
+                user_id,
             },
         });
     }
@@ -1473,7 +1489,7 @@ fn generate_daemons(
 // API Keys
 // ============================================================================
 
-fn generate_api_keys(networks: &[Network], now: DateTime<Utc>) -> Vec<ApiKey> {
+fn generate_api_keys(networks: &[Network], now: DateTime<Utc>) -> Vec<DaemonApiKey> {
     let find_network = |name: &str| {
         networks
             .iter()
@@ -1482,11 +1498,11 @@ fn generate_api_keys(networks: &[Network], now: DateTime<Utc>) -> Vec<ApiKey> {
     };
 
     vec![
-        ApiKey {
+        DaemonApiKey {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
-            base: ApiKeyBase {
+            base: DaemonApiKeyBase {
                 key: format!("demo_hq_{}", Uuid::new_v4().simple()),
                 name: "HQ Daemon Key".to_string(),
                 last_used: Some(now),
@@ -1496,11 +1512,11 @@ fn generate_api_keys(networks: &[Network], now: DateTime<Utc>) -> Vec<ApiKey> {
                 tags: vec![],
             },
         },
-        ApiKey {
+        DaemonApiKey {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
-            base: ApiKeyBase {
+            base: DaemonApiKeyBase {
                 key: format!("demo_cloud_{}", Uuid::new_v4().simple()),
                 name: "Cloud Daemon Key".to_string(),
                 last_used: Some(now),
@@ -1510,11 +1526,11 @@ fn generate_api_keys(networks: &[Network], now: DateTime<Utc>) -> Vec<ApiKey> {
                 tags: vec![],
             },
         },
-        ApiKey {
+        DaemonApiKey {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
-            base: ApiKeyBase {
+            base: DaemonApiKeyBase {
                 key: format!("demo_denver_{}", Uuid::new_v4().simple()),
                 name: "Denver Daemon Key".to_string(),
                 last_used: Some(now),
@@ -1524,11 +1540,11 @@ fn generate_api_keys(networks: &[Network], now: DateTime<Utc>) -> Vec<ApiKey> {
                 tags: vec![],
             },
         },
-        ApiKey {
+        DaemonApiKey {
             id: Uuid::new_v4(),
             created_at: now,
             updated_at: now,
-            base: ApiKeyBase {
+            base: DaemonApiKeyBase {
                 key: format!("demo_riverside_{}", Uuid::new_v4().simple()),
                 name: "Riverside Daemon Key".to_string(),
                 last_used: Some(now),

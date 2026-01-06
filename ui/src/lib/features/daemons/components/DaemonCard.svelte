@@ -2,31 +2,38 @@
 	import GenericCard from '$lib/shared/components/data/GenericCard.svelte';
 	import type { Daemon } from '$lib/features/daemons/types/base';
 	import { getDaemonIsRunningDiscovery } from '$lib/features/daemons/queries';
-	import { sessions } from '$lib/features/discovery/sse';
+	import { useActiveSessionsQuery } from '$lib/features/discovery/queries';
 	import { concepts, entities } from '$lib/shared/stores/metadata';
 	import { formatTimestamp } from '$lib/shared/utils/formatting';
 	import { toColor } from '$lib/shared/utils/styling';
-	import { Trash2 } from 'lucide-svelte';
+	import { ArrowBigUp, Trash2 } from 'lucide-svelte';
 	import { useTagsQuery } from '$lib/features/tags/queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
 	import { useHostsQuery } from '$lib/features/hosts/queries';
 	import { useSubnetsQuery } from '$lib/features/subnets/queries';
+	import type { TagProps } from '$lib/shared/components/data/types';
+	import DaemonUpgradeModal from './DaemonUpgradeModal.svelte';
+
+	// Modal state
+	let upgradeModalOpen = $state(false);
 
 	// Queries
 	const tagsQuery = useTagsQuery();
 	const networksQuery = useNetworksQuery();
 	const hostsQuery = useHostsQuery();
 	const subnetsQuery = useSubnetsQuery();
+	const sessionsQuery = useActiveSessionsQuery();
 
 	// Derived data
 	let tagsData = $derived(tagsQuery.data ?? []);
 	let networksData = $derived(networksQuery.data ?? []);
 	let hostsData = $derived(hostsQuery.data ?? []);
 	let subnetsData = $derived(subnetsQuery.data ?? []);
+	let sessionsData = $derived(sessionsQuery.data ?? []);
 
 	let {
 		daemon,
-		onDelete = () => {},
+		onDelete,
 		viewMode,
 		selected,
 		onSelectionChange = () => {}
@@ -39,13 +46,44 @@
 	} = $props();
 
 	let host = $derived(hostsData.find((h) => h.id === daemon.host_id) ?? null);
-	let daemonIsRunningDiscovery = $derived(getDaemonIsRunningDiscovery(daemon.id, $sessions));
+	let daemonIsRunningDiscovery = $derived(getDaemonIsRunningDiscovery(daemon.id, sessionsData));
+
+	// Compute status tag based on version_status
+	let status: TagProps | null = $derived.by(() => {
+		switch (daemon.version_status.status) {
+			case 'Deprecated':
+				return { label: 'Deprecated', color: toColor('red') };
+			case 'Outdated':
+				return { label: 'Outdated', color: toColor('yellow') };
+			default:
+				return null;
+		}
+	});
+
+	let hasUpdateAvailable = $derived(
+		daemon.version_status.status === 'Outdated' || daemon.version_status.status === 'Deprecated'
+	);
+
+	let upgradeButtonClass = $derived.by(() => {
+		switch (daemon.version_status.status) {
+			case 'Deprecated':
+				return 'btn-icon-info';
+			case 'Outdated':
+				return 'btn-icon-info';
+			default:
+				return 'btn-icon';
+		}
+	});
+
+	// Get version string from version_status
+	let version = $derived(daemon.version_status.version ?? 'Unknown');
 
 	// Build card data
 	let cardData = $derived({
 		title: daemon.name,
 		iconColor: entities.getColorHelper('Daemon').icon,
 		Icon: entities.getIconComponent('Daemon'),
+		status,
 		fields: [
 			{
 				label: 'Network',
@@ -54,6 +92,10 @@
 			{
 				label: 'Host',
 				value: host ? host.name : 'Unknown Host'
+			},
+			{
+				label: 'Version',
+				value: version
 			},
 			{
 				label: 'Created',
@@ -117,15 +159,33 @@
 			}
 		],
 		actions: [
-			{
-				label: 'Delete',
-				icon: Trash2,
-				class: 'btn-icon-danger',
-				onClick: () => onDelete(daemon),
-				disabled: daemonIsRunningDiscovery
-			}
+			...(onDelete
+				? [
+						{
+							label: 'Delete',
+							icon: Trash2,
+							class: 'btn-icon-danger',
+							onClick: () => onDelete(daemon),
+							disabled: daemonIsRunningDiscovery
+						}
+					]
+				: []),
+			...(hasUpdateAvailable
+				? [
+						{
+							label: 'Update',
+							icon: ArrowBigUp,
+							class: upgradeButtonClass,
+							onClick: () => (upgradeModalOpen = true),
+							disabled: false,
+							forceLabel: true
+						}
+					]
+				: [])
 		]
 	});
 </script>
 
 <GenericCard {...cardData} {viewMode} {selected} {onSelectionChange} />
+
+<DaemonUpgradeModal isOpen={upgradeModalOpen} onClose={() => (upgradeModalOpen = false)} {daemon} />

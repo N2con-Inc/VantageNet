@@ -3,10 +3,10 @@
 	import Toast from '$lib/shared/components/feedback/Toast.svelte';
 	import Sidebar from '$lib/shared/components/layout/Sidebar.svelte';
 	import { onDestroy, onMount } from 'svelte';
-	import { discoverySSEManager } from '$lib/features/discovery/sse';
+	import { discoverySSEManager } from '$lib/features/discovery/queries';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
 	import { getMetadata } from '$lib/shared/stores/metadata';
-	import { topologySSEManager } from '$lib/features/topology/sse';
+	import { topologySSEManager } from '$lib/features/topology/queries';
 	import { useDaemonsQuery } from '$lib/features/daemons/queries';
 
 	// Read hash immediately during script initialization, before onMount
@@ -26,7 +26,7 @@
 	let sidebarCollapsed = $state(false);
 	let dataLoadingStarted = $state(false);
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	let allTabs = $state<Array<{ id: string; component: any }>>([]);
+	let allTabs = $state<Array<{ id: string; component: any; isReadOnly: boolean }>>([]);
 
 	// Update URL hash when activeTab changes
 	$effect(() => {
@@ -113,7 +113,7 @@
 				<!-- Programmatically render all tabs based on sidebar config -->
 				{#each allTabs as tab (tab.id)}
 					<div class:hidden={activeTab !== tab.id}>
-						<tab.component />
+						<tab.component isReadOnly={tab.isReadOnly} />
 					</div>
 				{/each}
 			</div>

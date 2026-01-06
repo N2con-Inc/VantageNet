@@ -1,5 +1,5 @@
-use crate::server::auth::middleware::auth::{AuthenticatedDaemon, AuthenticatedEntity};
-use crate::server::auth::middleware::permissions::{MemberOrDaemon, RequireMember};
+use crate::server::auth::middleware::auth::AuthenticatedEntity;
+use crate::server::auth::middleware::permissions::{Authorized, IsDaemon, Member, Or, Viewer};
 use crate::server::shared::handlers::query::FilterQueryExtractor;
 use crate::server::shared::handlers::traits::{
     BulkDeleteResponse, CrudHandlers, bulk_delete_handler, delete_handler,
@@ -15,6 +15,7 @@ use crate::server::{
     hosts::r#impl::{
         api::{CreateHostRequest, DiscoveryHostRequest, HostResponse, UpdateHostRequest},
         base::Host,
+        legacy::{HostCreateRequestBody, HostCreateResponse, LegacyHostWithServicesResponse},
     },
     shared::types::api::{ApiError, ApiResponse, ApiResult},
 };
@@ -45,16 +46,20 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
     responses(
         (status = 200, description = "List of hosts with their children", body = ApiResponse<Vec<HostResponse>>),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_all_hosts(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Viewer>,
     Query(query): Query<<Host as CrudHandlers>::FilterQuery>,
 ) -> ApiResult<Json<ApiResponse<Vec<HostResponse>>>> {
-    let base_filter = EntityFilter::unfiltered().network_ids(&user.network_ids);
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
 
-    let filter = query.apply_to_filter(base_filter, &user.network_ids, user.organization_id);
+    let base_filter = EntityFilter::unfiltered().network_ids(&network_ids);
+    let filter = query.apply_to_filter(base_filter, &network_ids, organization_id);
 
     let hosts = state
         .services
@@ -76,13 +81,18 @@ async fn get_all_hosts(
         (status = 200, description = "Host found", body = ApiResponse<HostResponse>),
         (status = 404, description = "Host not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_host_by_id(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Viewer>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<HostResponse>>> {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     let host = state
         .services
         .host_service
@@ -90,12 +100,7 @@ async fn get_host_by_id(
         .await?
         .ok_or_else(|| ApiError::not_found(format!("Host {} not found", id)))?;
 
-    validate_read_access(
-        Some(host.network_id),
-        None,
-        &user.network_ids,
-        user.organization_id,
-    )?;
+    validate_read_access(Some(host.network_id), None, &network_ids, organization_id)?;
 
     Ok(Json(ApiResponse::success(host)))
 }
@@ -104,13 +109,13 @@ async fn get_host_by_id(
 ///
 /// Creates a host with optional interfaces, ports, and services.
 /// The `source` field is automatically set to `Manual`.
-/// IDs for the host and all children are generated server-side.
 ///
 /// ### Tag Validation
 ///
 /// - Tags must exist and belong to your organization
 /// - Duplicate tag UUIDs are automatically deduplicated
 /// - Invalid or cross-organization tag UUIDs return a 400 error
+///
 #[utoipa::path(
     post,
     path = "",
@@ -121,66 +126,116 @@ async fn get_host_by_id(
         (status = 400, description = "Validation error: network not found, subnet mismatch, or invalid tags", body = ApiErrorResponse),
         (status = 401, description = "No access to the specified network", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+    security( ("user_api_key" = []),("session" = []), ("daemon_api_key" = []))
 )]
 async fn create_host(
     State(state): State<Arc<AppState>>,
-    MemberOrDaemon {
-        entity,
-        network_ids,
-        ..
-    }: MemberOrDaemon,
-    Json(mut request): Json<CreateHostRequest>,
-) -> ApiResult<Json<ApiResponse<HostResponse>>> {
-    // Validate request (name length, etc.)
-    request
-        .validate()
-        .map_err(|e| ApiError::bad_request(&e.to_string()))?;
-
+    auth: Authorized<Or<Member, IsDaemon>>,
+    Json(request): Json<HostCreateRequestBody>,
+) -> ApiResult<Json<ApiResponse<HostCreateResponse>>> {
+    let network_ids = auth.network_ids();
+    let entity = auth.into_entity();
     let host_service = &state.services.host_service;
 
-    // Validate user has access to the network
-    validate_network_access(Some(request.network_id), &network_ids, "create")?;
+    match (request, &entity) {
+        // New format - standard flow
+        (HostCreateRequestBody::New(mut request), _) => {
+            // Validate request (name length, etc.)
+            request
+                .validate()
+                .map_err(|e| ApiError::bad_request(&e.to_string()))?;
 
-    // Validate network_id exists
-    let _network = state
-        .services
-        .network_service
-        .get_by_id(&request.network_id)
-        .await?
-        .ok_or_else(|| {
-            ApiError::bad_request(&format!("Network {} not found", request.network_id))
-        })?;
+            // Validate user has access to the network
+            validate_network_access(Some(request.network_id), &network_ids, "create")?;
 
-    // Check interface subnets are on the same network
-    for interface in &request.interfaces {
-        if let Some(subnet) = state
-            .services
-            .subnet_service
-            .get_by_id(&interface.subnet_id)
-            .await?
-            && subnet.base.network_id != request.network_id
-        {
-            return Err(ApiError::bad_request(&format!(
-                "Host is on network {}, cannot have an interface with a subnet \"{}\" which is on network {}.",
-                request.network_id, subnet.base.name, subnet.base.network_id
-            )));
-        }
-    }
+            // Validate network_id exists
+            let _network = state
+                .services
+                .network_service
+                .get_by_id(&request.network_id)
+                .await?
+                .ok_or_else(|| {
+                    ApiError::bad_request(&format!("Network {} not found", request.network_id))
+                })?;
 
-    // Validate and dedupe tags (only for users, daemons don't use tags)
-    if let AuthenticatedEntity::User {
-        organization_id, ..
-    } = &entity
-    {
-        request.tags =
-            validate_and_dedupe_tags(request.tags, *organization_id, &state.services.tag_service)
+            // Check interface subnets are on the same network
+            for interface in &request.interfaces {
+                if let Some(subnet) = state
+                    .services
+                    .subnet_service
+                    .get_by_id(&interface.subnet_id)
+                    .await?
+                    && subnet.base.network_id != request.network_id
+                {
+                    return Err(ApiError::bad_request(&format!(
+                        "Host is on network {}, cannot have an interface with a subnet \"{}\" which is on network {}.",
+                        request.network_id, subnet.base.name, subnet.base.network_id
+                    )));
+                }
+            }
+
+            // Validate and dedupe tags (only for users, daemons don't use tags)
+            if let AuthenticatedEntity::User {
+                organization_id, ..
+            } = &entity
+            {
+                request.tags = validate_and_dedupe_tags(
+                    request.tags,
+                    *organization_id,
+                    &state.services.tag_service,
+                )
                 .await?;
+            }
+
+            let host_response = host_service.create_from_request(request, entity).await?;
+
+            Ok(Json(ApiResponse::success(HostCreateResponse::New(
+                host_response,
+            ))))
+        }
+
+        // Legacy format from daemon - transform and process
+        (
+            HostCreateRequestBody::Legacy(legacy_request),
+            AuthenticatedEntity::Daemon { daemon_id, .. },
+        ) => {
+            tracing::warn!(
+                daemon_id = %daemon_id,
+                "Legacy daemon request to POST /api/hosts - daemon should be updated"
+            );
+
+            let discovery_request = legacy_request.into_discovery_request();
+
+            // Validate daemon has access to the network
+            validate_network_access(
+                Some(discovery_request.host.base.network_id),
+                &network_ids,
+                "create",
+            )?;
+
+            let DiscoveryHostRequest {
+                host,
+                interfaces,
+                ports,
+                services,
+            } = discovery_request;
+
+            let host_response = host_service
+                .discover_host(host, interfaces, ports, services, entity)
+                .await?;
+
+            let legacy_response = LegacyHostWithServicesResponse::from_host_response(host_response);
+
+            Ok(Json(ApiResponse::success(HostCreateResponse::Legacy(
+                legacy_response,
+            ))))
+        }
+
+        // Legacy format from non-daemon (user) - reject
+        (HostCreateRequestBody::Legacy(_), _) => Err(ApiError::bad_request(
+            "Invalid request format. Please use the CreateHostRequest format.",
+        )),
     }
-
-    let host_response = host_service.create_from_request(request, entity).await?;
-
-    Ok(Json(ApiResponse::success(host_response)))
 }
 
 /// Update a host
@@ -204,14 +259,19 @@ async fn create_host(
         (status = 400, description = "Validation error: invalid tags", body = ApiErrorResponse),
         (status = 404, description = "Host not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_host(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
     Json(mut request): Json<UpdateHostRequest>,
 ) -> ApiResult<Json<ApiResponse<HostResponse>>> {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     // Validate request (name length, etc.)
     request
         .validate()
@@ -231,20 +291,17 @@ async fn update_host(
     validate_read_access(
         Some(existing_host.base.network_id),
         None,
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
     // Validate and dedupe tags
-    request.tags = validate_and_dedupe_tags(
-        request.tags,
-        user.organization_id,
-        &state.services.tag_service,
-    )
-    .await?;
+    request.tags =
+        validate_and_dedupe_tags(request.tags, organization_id, &state.services.tag_service)
+            .await?;
 
     let host_response = host_service
-        .update_from_request(request, user.into())
+        .update_from_request(request, auth.into_entity())
         .await?;
 
     Ok(Json(ApiResponse::success(host_response)))
@@ -266,11 +323,11 @@ async fn update_host(
         (status = 200, description = "Host discovered/updated successfully", body = ApiResponse<HostResponse>),
         (status = 403, description = "Daemon cannot create hosts on other networks", body = ApiErrorResponse),
     ),
-    security(("api_key" = []))
+    security(("daemon_api_key" = []))
 )]
 async fn create_host_discovery(
     State(state): State<Arc<AppState>>,
-    daemon: AuthenticatedDaemon,
+    auth: Authorized<IsDaemon>,
     Json(request): Json<DiscoveryHostRequest>,
 ) -> ApiResult<Json<ApiResponse<HostResponse>>> {
     let host_service = &state.services.host_service;
@@ -282,14 +339,21 @@ async fn create_host_discovery(
         services,
     } = request;
 
-    if host.base.network_id != daemon.network_id {
+    // Get daemon network_id from entity
+    let daemon_network_id = auth
+        .network_ids()
+        .first()
+        .copied()
+        .ok_or_else(|| ApiError::forbidden("Daemon has no network assignment"))?;
+
+    if host.base.network_id != daemon_network_id {
         return Err(ApiError::forbidden(
             "Daemon cannot create hosts on networks it's not assigned to",
         ));
     }
 
     let host_response = host_service
-        .discover_host(host, interfaces, ports, services, daemon.into())
+        .discover_host(host, interfaces, ports, services, auth.into_entity())
         .await?;
 
     Ok(Json(ApiResponse::success(host_response)))
@@ -327,13 +391,18 @@ async fn create_host_discovery(
         (status = 404, description = "One or both hosts not found", body = ApiErrorResponse),
         (status = 400, description = "Validation error: same host, has daemon, or different networks", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn consolidate_hosts(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path((destination_host_id, other_host_id)): Path<(Uuid, Uuid)>,
 ) -> ApiResult<Json<ApiResponse<HostResponse>>> {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     let host_service = &state.services.host_service;
 
     let destination_host = host_service
@@ -359,14 +428,14 @@ async fn consolidate_hosts(
     validate_read_access(
         Some(destination_host.base.network_id),
         None,
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
     validate_read_access(
         Some(other_host.base.network_id),
         None,
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
     // Make sure hosts are on same network
@@ -378,7 +447,7 @@ async fn consolidate_hosts(
     }
 
     let host_response = host_service
-        .consolidate_hosts(destination_host, other_host, user.into())
+        .consolidate_hosts(destination_host, other_host, auth.into_entity())
         .await?;
 
     Ok(Json(ApiResponse::success(host_response)))
@@ -399,11 +468,11 @@ async fn consolidate_hosts(
         (status = 404, description = "Host not found", body = ApiErrorResponse),
         (status = 409, description = "Host has associated daemon", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn delete_host(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
     // Pre-validation: Can't delete a host with an associated daemon
@@ -421,7 +490,7 @@ pub async fn delete_host(
     }
 
     // Delegate to generic handler (handles auth checks, deletion)
-    delete_handler::<Host>(State(state), user, Path(id)).await
+    delete_handler::<Host>(State(state), auth, Path(id)).await
 }
 
 /// Bulk delete hosts
@@ -437,11 +506,11 @@ pub async fn delete_host(
         (status = 200, description = "Hosts deleted successfully", body = ApiResponse<BulkDeleteResponse>),
         (status = 409, description = "One or more hosts has an associated daemon - delete daemons first", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn bulk_delete_hosts(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(ids): Json<Vec<Uuid>>,
 ) -> ApiResult<Json<ApiResponse<BulkDeleteResponse>>> {
     let daemon_service = &state.services.daemon_service;
@@ -454,10 +523,5 @@ pub async fn bulk_delete_hosts(
         ));
     }
 
-    bulk_delete_handler::<Host>(
-        axum::extract::State(state),
-        RequireMember(user),
-        axum::extract::Json(ids),
-    )
-    .await
+    bulk_delete_handler::<Host>(axum::extract::State(state), auth, axum::extract::Json(ids)).await
 }

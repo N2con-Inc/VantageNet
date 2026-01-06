@@ -66,9 +66,9 @@
 	preventCloseOnClickOutside={true}
 	centerTitle={true}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon Icon={Lock} color="Blue" />
-	</svelte:fragment>
+	{/snippet}
 
 	<form
 		onsubmit={(e) => {

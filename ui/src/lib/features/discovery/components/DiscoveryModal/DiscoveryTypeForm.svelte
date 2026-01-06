@@ -7,32 +7,27 @@
 	import InlineWarning from '$lib/shared/components/feedback/InlineWarning.svelte';
 	import { discoveryTypes, subnetTypes } from '$lib/shared/stores/metadata';
 	import type { Daemon } from '$lib/features/daemons/types/base';
-	import { generateCronSchedule, parseCronToHours } from '../../queries';
+	import { generateCronSchedule } from '../../queries';
+	import type { AnyFieldApi } from '@tanstack/svelte-form';
+	import SelectInput from '$lib/shared/components/forms/input/SelectInput.svelte';
 
 	// Props
 	interface Props {
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		form: { Field: any; state: { values: Record<string, any> } };
 		formData: Discovery;
 		readOnly?: boolean;
 		daemonHostId: string | null;
 		daemon: Daemon;
 	}
 
-	let { formData = $bindable(), readOnly = false, daemonHostId, daemon }: Props = $props();
+	let { form, formData = $bindable(), readOnly = false, daemonHostId, daemon }: Props = $props();
 
 	// Queries
 	const subnetsQuery = useSubnetsQuery();
 
 	// Derived data
 	let subnetsData = $derived(subnetsQuery.data ?? []);
-
-	// Local state for form fields
-	let runType = $state(formData.run_type.type);
-	let discoveryType = $state(formData.discovery_type.type);
-	let hostNameFallback = $state<'BestService' | 'Ip'>(
-		formData.discovery_type.type === 'Network' || formData.discovery_type.type === 'Docker'
-			? formData.discovery_type.host_naming_fallback
-			: 'BestService'
-	);
 
 	// Discovery type options
 	let discoveryTypeOptions = $derived([
@@ -55,14 +50,14 @@
 		{ value: 'Scheduled', label: 'Scheduled (Automatic)' }
 	];
 
-	// Handle run type changes
-	$effect(() => {
-		if (runType === 'AdHoc' && formData.run_type.type !== 'AdHoc') {
+	// Handle run type changes - update formData when form field changes
+	function handleRunTypeChange(value: string) {
+		if (value === 'AdHoc' && formData.run_type.type !== 'AdHoc') {
 			formData.run_type = {
 				type: 'AdHoc',
 				last_run: null
 			};
-		} else if (runType === 'Scheduled' && formData.run_type.type !== 'Scheduled') {
+		} else if (value === 'Scheduled' && formData.run_type.type !== 'Scheduled') {
 			formData.run_type = {
 				type: 'Scheduled',
 				cron_schedule: '0 0 */1 * * *', // Default: every hour
@@ -70,41 +65,50 @@
 				enabled: true
 			};
 		}
-	});
+	}
 
-	// Handle discovery type changes
-	$effect(() => {
-		if (discoveryType === 'Network' && formData.discovery_type.type !== 'Network') {
+	// Handle discovery type changes - update formData when form field changes
+	function handleDiscoveryTypeChange(value: string) {
+		if (value === 'Network' && formData.discovery_type.type !== 'Network') {
 			formData.discovery_type = {
 				type: 'Network',
 				subnet_ids: daemon.capabilities.interfaced_subnet_ids,
 				host_naming_fallback: 'BestService'
 			} as NetworkDiscovery;
-			hostNameFallback = 'BestService';
-		} else if (discoveryType === 'Docker' && formData.discovery_type.type !== 'Docker') {
+		} else if (value === 'Docker' && formData.discovery_type.type !== 'Docker') {
 			formData.discovery_type = {
 				type: 'Docker',
 				host_id: daemonHostId,
 				host_naming_fallback: 'BestService'
 			} as DockerDiscovery;
-			hostNameFallback = 'BestService';
-		} else if (discoveryType === 'SelfReport' && formData.discovery_type.type !== 'SelfReport') {
+		} else if (value === 'SelfReport' && formData.discovery_type.type !== 'SelfReport') {
 			formData.discovery_type = {
 				type: 'SelfReport',
 				host_id: daemonHostId
 			} as SelfReportDiscovery;
 		}
-	});
+	}
 
-	// Handle host naming fallback changes - only update if value actually changed
-	function handleHostNameFallbackChange() {
+	// Handle host naming fallback changes
+	function handleHostNameFallbackChange(value: string) {
 		if (formData.discovery_type.type == 'Docker' || formData.discovery_type.type == 'Network') {
-			if (formData.discovery_type.host_naming_fallback !== hostNameFallback) {
+			if (formData.discovery_type.host_naming_fallback !== value) {
 				formData.discovery_type = {
 					...formData.discovery_type,
-					host_naming_fallback: hostNameFallback
+					host_naming_fallback: value as 'BestService' | 'Ip'
 				};
 			}
+		}
+	}
+
+	// Handle schedule changes - update cron from days/hours
+	function handleScheduleChange(days: number, hours: number) {
+		if (formData.run_type.type === 'Scheduled') {
+			const totalHours = days * 24 + hours;
+			formData.run_type = {
+				...formData.run_type,
+				cron_schedule: generateCronSchedule(totalHours)
+			};
 		}
 	}
 
@@ -158,37 +162,7 @@
 		}
 	}
 
-	// Frequency configuration - convert between hours and cron
-	// Initialize from formData's cron schedule (parse once on init)
-	function getInitialDaysHours(): { days: number; hours: number } {
-		if (formData.run_type.type === 'Scheduled' && formData.run_type.cron_schedule) {
-			const totalHours = parseCronToHours(formData.run_type.cron_schedule);
-			if (totalHours !== null) {
-				return {
-					days: Math.floor(totalHours / 24),
-					hours: totalHours % 24
-				};
-			}
-		}
-		return { days: 1, hours: 0 };
-	}
-
-	const initial = getInitialDaysHours();
-	let selectedDays = $state(initial.days);
-	let selectedHours = $state(initial.hours);
-
-	// Generate cron schedule from selected hours - only when user changes the values
-	function handleFrequencyChange() {
-		if (formData.run_type.type === 'Scheduled') {
-			const totalHours = selectedDays * 24 + selectedHours;
-			formData.run_type = {
-				...formData.run_type,
-				cron_schedule: generateCronSchedule(totalHours)
-			};
-		}
-	}
-
-	// Day and hour options
+	// Day and hour options for schedule
 	const dayOptions = Array.from({ length: 31 }, (_, i) => ({
 		value: String(i),
 		label: i === 0 ? 'No days' : i === 1 ? '1 day' : `${i} days`
@@ -206,41 +180,48 @@
 
 		<div class="space-y-4">
 			<!-- Run Type Selection -->
-			<div>
-				<label for="run_type" class="text-secondary mb-1 block text-sm font-medium">
-					Run Type <span class="text-red-400">*</span>
-				</label>
-				<select id="run_type" class="input-field w-full" bind:value={runType} disabled={readOnly}>
-					{#each runTypeOptions as option (option.value)}
-						<option value={option.value}>{option.label}</option>
-					{/each}
-				</select>
-				<p class="text-tertiary mt-1 text-xs">
-					{runType === 'AdHoc'
-						? 'This discovery will only run when manually triggered'
-						: 'This discovery will run automatically on a schedule'}
-				</p>
-			</div>
+			<form.Field
+				name="run_type_type"
+				listeners={{
+					onChange: ({ value }: { value: string }) => handleRunTypeChange(value)
+				}}
+			>
+				{#snippet children(field: AnyFieldApi)}
+					<SelectInput
+						label="Run Type"
+						id="run_type"
+						options={runTypeOptions}
+						{field}
+						disabled={readOnly}
+					/>
+					<p class="text-tertiary mt-1 text-xs">
+						{field.state.value === 'AdHoc'
+							? 'This discovery will only run when manually triggered'
+							: 'This discovery will run automatically on a schedule'}
+					</p>
+				{/snippet}
+			</form.Field>
 
 			<!-- Discovery Type Selection -->
-			<div>
-				<label for="discovery_type" class="text-secondary mb-1 block text-sm font-medium">
-					Discovery Type <span class="text-red-400">*</span>
-				</label>
-				<select
-					id="discovery_type"
-					class="input-field w-full"
-					bind:value={discoveryType}
-					disabled={readOnly}
-				>
-					{#each discoveryTypeOptions as option (option.value)}
-						<option value={option.value} disabled={option.disabled}>{option.label}</option>
-					{/each}
-				</select>
-				<p class="text-tertiary mt-1 text-xs">
-					{discoveryTypes.getDescription(discoveryType)}
-				</p>
-			</div>
+			<form.Field
+				name="discovery_type_type"
+				listeners={{
+					onChange: ({ value }: { value: string }) => handleDiscoveryTypeChange(value)
+				}}
+			>
+				{#snippet children(field: AnyFieldApi)}
+					<SelectInput
+						label="Discovery Type"
+						id="discovery_type"
+						options={discoveryTypeOptions}
+						{field}
+						disabled={readOnly}
+					/>
+					<p class="text-tertiary mt-1 text-xs">
+						{discoveryTypes.getDescription(field.state.value)}
+					</p>
+				{/snippet}
+			</form.Field>
 
 			{#if daemonHostId == null}
 				<InlineWarning
@@ -251,26 +232,23 @@
 
 			<!-- Type-specific configuration -->
 			{#if formData.discovery_type.type == 'Docker' || formData.discovery_type.type == 'Network'}
-				<div>
-					<label for="host_name_fallback" class="text-secondary mb-1 block text-sm font-medium">
-						Host Name Fallback
-					</label>
-					<select
-						id="host_name_fallback"
-						class="input-field w-full"
-						bind:value={hostNameFallback}
-						disabled={readOnly}
-						onchange={handleHostNameFallbackChange}
-					>
-						{#each hostNameFallbackOptions as option (option.value)}
-							<option value={option.value}>{option.label}</option>
-						{/each}
-					</select>
-					<p class="text-tertiary mt-1 text-xs">
-						In the event that hostname can't be resolved, what name should be set for discovered
-						hosts? IP Address, or best service (the highest confidence service match)?
-					</p>
-				</div>
+				<form.Field
+					name="host_naming_fallback"
+					listeners={{
+						onChange: ({ value }: { value: string }) => handleHostNameFallbackChange(value)
+					}}
+				>
+					{#snippet children(field: AnyFieldApi)}
+						<SelectInput
+							label="Host Name Fallback"
+							id="host_name_fallback"
+							options={hostNameFallbackOptions}
+							{field}
+							disabled={readOnly}
+							helpText="In the event that hostname can't be resolved, what name should be set for discovered hosts? IP Address, or best service (the highest confidence service match)?"
+						/>
+					{/snippet}
+				</form.Field>
 			{/if}
 
 			{#if formData.discovery_type.type === 'Network'}
@@ -312,39 +290,45 @@
 				</p>
 
 				<div class="grid grid-cols-2 gap-4">
-					<div>
-						<label for="frequency_days" class="text-secondary mb-1 block text-sm font-medium">
-							Days
-						</label>
-						<select
-							id="frequency_days"
-							class="input-field w-full"
-							bind:value={selectedDays}
-							disabled={readOnly}
-							onchange={handleFrequencyChange}
-						>
-							{#each dayOptions as option (option.value)}
-								<option value={parseInt(option.value)}>{option.label}</option>
-							{/each}
-						</select>
-					</div>
+					<form.Field
+						name="schedule_days"
+						listeners={{
+							onChange: ({ value }: { value: string }) => {
+								const hours = form.state.values.schedule_hours || '0';
+								handleScheduleChange(parseInt(value), parseInt(hours));
+							}
+						}}
+					>
+						{#snippet children(field: AnyFieldApi)}
+							<SelectInput
+								label="Days"
+								id="frequency_days"
+								options={dayOptions}
+								{field}
+								disabled={readOnly}
+							/>
+						{/snippet}
+					</form.Field>
 
-					<div>
-						<label for="frequency_hours" class="text-secondary mb-1 block text-sm font-medium">
-							Hours
-						</label>
-						<select
-							id="frequency_hours"
-							class="input-field w-full"
-							bind:value={selectedHours}
-							disabled={readOnly}
-							onchange={handleFrequencyChange}
-						>
-							{#each hourOptions as option (option.value)}
-								<option value={parseInt(option.value)}>{option.label}</option>
-							{/each}
-						</select>
-					</div>
+					<form.Field
+						name="schedule_hours"
+						listeners={{
+							onChange: ({ value }: { value: string }) => {
+								const days = form.state.values.schedule_days || '1';
+								handleScheduleChange(parseInt(days), parseInt(value));
+							}
+						}}
+					>
+						{#snippet children(field: AnyFieldApi)}
+							<SelectInput
+								label="Hours"
+								id="frequency_hours"
+								options={hourOptions}
+								{field}
+								disabled={readOnly}
+							/>
+						{/snippet}
+					</form.Field>
 				</div>
 			</div>
 		</div>

@@ -157,7 +157,11 @@ export const AVAILABLE_COLORS = Object.keys(COLOR_MAP) as Color[];
 
 // Convert a string to a validated Color, with fallback to 'gray'
 export function toColor(value: string | null | undefined): Color {
-	return value && AVAILABLE_COLORS.includes(value as Color) ? (value as Color) : 'Gray';
+	if (!value) return 'Gray';
+	else {
+		const upperValue = value.charAt(0).toUpperCase() + value.slice(1);
+		return AVAILABLE_COLORS.includes(upperValue as Color) ? (upperValue as Color) : 'Gray';
+	}
 }
 
 // Unified color helper - works everywhere!

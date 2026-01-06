@@ -10,7 +10,7 @@
 	import type { Discovery } from '../../types/base';
 	import DiscoveryHistoricalSummary from './DiscoveryHistoricalSummary.svelte';
 	import { uuidv4Sentinel } from '$lib/shared/utils/formatting';
-	import { createEmptyDiscoveryFormData } from '../../queries';
+	import { createEmptyDiscoveryFormData, parseCronToHours } from '../../queries';
 	import InlineWarning from '$lib/shared/components/feedback/InlineWarning.svelte';
 	import { pushError } from '$lib/shared/stores/feedback';
 	import type { Daemon } from '$lib/features/daemons/types/base';
@@ -74,11 +74,16 @@
 		return empty;
 	}
 
-	// TanStack Form for validation (name field)
+	// TanStack Form for validation
 	// NOTE: defaultValues must NOT read from $state to avoid reactivity loops
 	const form = createForm(() => ({
 		defaultValues: {
-			name: ''
+			name: '',
+			run_type_type: 'AdHoc' as 'AdHoc' | 'Scheduled',
+			discovery_type_type: 'Network' as 'Network' | 'Docker' | 'SelfReport',
+			host_naming_fallback: 'BestService' as 'BestService' | 'Ip',
+			schedule_days: '1',
+			schedule_hours: '0'
 		},
 		onSubmit: async ({ value }) => {
 			// Update formData with form values
@@ -106,7 +111,32 @@
 
 	function handleOpen() {
 		formData = getDefaultFormData();
-		form.reset({ name: formData.name });
+
+		// Compute schedule days/hours from cron
+		let scheduleDays = '1';
+		let scheduleHours = '0';
+		if (formData.run_type.type === 'Scheduled' && formData.run_type.cron_schedule) {
+			const totalHours = parseCronToHours(formData.run_type.cron_schedule);
+			if (totalHours !== null) {
+				scheduleDays = String(Math.floor(totalHours / 24));
+				scheduleHours = String(totalHours % 24);
+			}
+		}
+
+		// Compute host naming fallback
+		const hostNamingFallback =
+			formData.discovery_type.type === 'Network' || formData.discovery_type.type === 'Docker'
+				? formData.discovery_type.host_naming_fallback
+				: 'BestService';
+
+		form.reset({
+			name: formData.name,
+			run_type_type: formData.run_type.type === 'Historical' ? 'AdHoc' : formData.run_type.type,
+			discovery_type_type: formData.discovery_type.type,
+			host_naming_fallback: hostNamingFallback,
+			schedule_days: scheduleDays,
+			schedule_hours: scheduleHours
+		});
 	}
 
 	async function handleSubmit() {
@@ -142,9 +172,9 @@
 </script>
 
 <GenericModal {isOpen} {title} {onClose} onOpen={handleOpen} size="xl" showCloseButton={true}>
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon Icon={entities.getIconComponent('Discovery')} color={colorHelper.color} />
-	</svelte:fragment>
+	{/snippet}
 
 	<form
 		onsubmit={(e) => {
@@ -161,7 +191,7 @@
 				{#if isHistoricalRun && discovery?.run_type.type === 'Historical'}
 					<DiscoveryHistoricalSummary payload={discovery.run_type.results} />
 				{:else if daemon}
-					<DiscoveryTypeForm bind:formData {readOnly} {daemonHostId} {daemon} />
+					<DiscoveryTypeForm {form} bind:formData {readOnly} {daemonHostId} {daemon} />
 				{:else}
 					<InlineWarning body="No daemon selected; can't set up discovery" />
 				{/if}

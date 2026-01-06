@@ -49,14 +49,16 @@
 		{/if}
 	</div>
 
-	<svelte:fragment slot="footer">
-		<div class="flex justify-end gap-3">
-			<button type="button" class="btn-secondary" on:click={onCancel}>
-				{cancelLabel}
-			</button>
-			<button type="button" class={confirmButtonClasses[variant]} on:click={onConfirm}>
-				{confirmLabel}
-			</button>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex justify-end gap-3">
+				<button type="button" class="btn-secondary" on:click={onCancel}>
+					{cancelLabel}
+				</button>
+				<button type="button" class={confirmButtonClasses[variant]} on:click={onConfirm}>
+					{confirmLabel}
+				</button>
+			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

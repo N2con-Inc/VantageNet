@@ -8,11 +8,12 @@ use chrono::{TimeZone, Utc};
 use cidr::{IpCidr, Ipv4Cidr};
 use email_address::EmailAddress;
 use mac_address::MacAddress;
+use semver::Version;
 use std::net::{IpAddr, Ipv4Addr};
 
 use crate::server::{
-    api_keys::r#impl::base::{ApiKey, ApiKeyBase},
     bindings::r#impl::base::Binding,
+    daemon_api_keys::r#impl::base::{DaemonApiKey, DaemonApiKeyBase},
     daemons::r#impl::{
         api::DaemonCapabilities,
         base::{Daemon, DaemonBase, DaemonMode},
@@ -26,15 +27,19 @@ use crate::server::{
         types::GroupType,
     },
     hosts::r#impl::{
-        api::{CreateHostRequest, CreateInterfaceInput, CreatePortInput, HostResponse},
+        api::{
+            BindingInput, CreateHostRequest, HostResponse, InterfaceInput, PortInput, ServiceInput,
+        },
         base::{Host, HostBase},
     },
     interfaces::r#impl::base::{Interface, InterfaceBase},
     networks::r#impl::{Network, NetworkBase},
     organizations::r#impl::base::{Organization, OrganizationBase},
     ports::r#impl::base::{Port, PortBase, PortType, TransportProtocol},
-    services::definitions::ServiceDefinitionRegistry,
-    services::r#impl::base::{Service, ServiceBase},
+    services::{
+        definitions::ServiceDefinitionRegistry,
+        r#impl::base::{Service, ServiceBase},
+    },
     shared::types::{Color, entities::EntitySource},
     subnets::r#impl::{
         base::{Subnet, SubnetBase},
@@ -203,6 +208,7 @@ pub fn service() -> Service {
             virtualization: None,
             source: EntitySource::Manual,
             tags: vec![],
+            position: 0,
         },
     }
 }
@@ -227,15 +233,15 @@ pub fn tag() -> Tag {
     }
 }
 
-/// Example ApiKey entity.
-pub fn api_key() -> ApiKey {
-    ApiKey {
+/// Example DaemonApiKey entity.
+pub fn daemon_api_key() -> DaemonApiKey {
+    DaemonApiKey {
         id: ids::API_KEY,
         created_at: example_timestamp(),
         updated_at: example_timestamp(),
-        base: ApiKeyBase {
+        base: DaemonApiKeyBase {
             name: "daemon-key-01".to_string(),
-            key: "sk_••••••••".to_string(), // Masked in responses
+            key: "scp_d_••••••••••••••••••••••••••••••••".to_string(), // Masked in responses
             network_id: ids::NETWORK,
             last_used: Some(example_timestamp()),
             expires_at: None,
@@ -263,6 +269,10 @@ pub fn daemon() -> Daemon {
             last_seen: example_timestamp(),
             name: "home-daemon".to_string(),
             tags: vec![],
+            version: Version::parse(env!("CARGO_PKG_VERSION"))
+                .map(Some)
+                .unwrap_or_default(),
+            user_id: ids::USER,
         },
     }
 }
@@ -331,6 +341,9 @@ pub fn discovery() -> Discovery {
 
 /// Example CreateHostRequest.
 pub fn create_host_request() -> CreateHostRequest {
+    let service_def = ServiceDefinitionRegistry::find_by_id("Nginx")
+        .unwrap_or_else(|| ServiceDefinitionRegistry::all_service_definitions()[0].clone());
+
     CreateHostRequest {
         name: "web-server-01".to_string(),
         network_id: ids::NETWORK,
@@ -339,16 +352,31 @@ pub fn create_host_request() -> CreateHostRequest {
         virtualization: None,
         hidden: false,
         tags: vec![],
-        interfaces: vec![CreateInterfaceInput {
+        interfaces: vec![InterfaceInput {
+            id: ids::INTERFACE,
             subnet_id: ids::SUBNET,
             ip_address: IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100)),
             mac_address: Some(MacAddress::new([0xDE, 0xAD, 0xBE, 0xEF, 0x12, 0x34])),
             name: Some("eth0".to_string()),
-            position: 0,
+            position: Some(0),
         }],
-        ports: vec![CreatePortInput {
+        ports: vec![PortInput {
+            id: ids::PORT,
             number: 80,
             protocol: TransportProtocol::Tcp,
+        }],
+        services: vec![ServiceInput {
+            id: ids::SERVICE,
+            name: "nginx".to_string(),
+            service_definition: service_def,
+            bindings: vec![BindingInput::Port {
+                id: ids::BINDING,
+                port_id: ids::PORT,
+                interface_id: Some(ids::INTERFACE),
+            }],
+            virtualization: None,
+            tags: vec![],
+            position: Some(0),
         }],
     }
 }

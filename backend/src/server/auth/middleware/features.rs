@@ -1,5 +1,9 @@
 use crate::server::{
-    auth::middleware::auth::{AuthError, AuthenticatedUser},
+    auth::middleware::{
+        auth::AuthError,
+        cache::CachedOrganization,
+        permissions::{Authorized, IsUser},
+    },
     billing::types::base::BillingPlan,
     config::AppState,
     organizations::r#impl::base::Organization,
@@ -63,21 +67,21 @@ where
     type Rejection = AuthError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let AuthenticatedUser {
-            permissions,
-            organization_id,
-            ..
-        } = AuthenticatedUser::from_request_parts(parts, state).await?;
+        let auth = Authorized::<IsUser>::from_request_parts(parts, state).await?;
+        let permissions = auth
+            .entity
+            .permissions()
+            .ok_or_else(|| AuthError(ApiError::internal_error("No permissions")))?;
+        let organization_id = auth
+            .organization_id()
+            .ok_or_else(|| AuthError(ApiError::internal_error("No organization")))?;
 
         let app_state = state.as_ref();
 
-        let organization = app_state
-            .services
-            .organization_service
-            .get_by_id(&organization_id)
+        // Use cached organization lookup (may have been cached by billing middleware)
+        let organization = CachedOrganization::get_or_load(parts, app_state, &organization_id)
             .await
-            .map_err(|_| AuthError(ApiError::internal_error("Failed to load organization")))?
-            .ok_or_else(|| AuthError(ApiError::forbidden("Organization not found")))?;
+            .map_err(AuthError)?;
 
         let plan = organization.base.plan.unwrap_or_default();
 
@@ -107,17 +111,6 @@ where
 // ============ Concrete Checkers ============
 
 #[derive(Default)]
-pub struct EmbedsFeature;
-
-#[async_trait]
-impl FeatureCheck for EmbedsFeature {
-    async fn check(&self, _ctx: &FeatureCheckContext<'_>) -> FeatureCheckResult {
-        // Embed check happens in the handler where we have access to the request body
-        FeatureCheckResult::Allowed
-    }
-}
-
-#[derive(Default)]
 pub struct InviteUsersFeature;
 
 #[async_trait]
@@ -128,6 +121,20 @@ impl FeatureCheck for InviteUsersFeature {
         }
 
         // Seat check happens in the handler where we have access to the request body
+        FeatureCheckResult::Allowed
+    }
+}
+
+#[derive(Default)]
+pub struct ApiKeyFeature;
+
+#[async_trait]
+impl FeatureCheck for ApiKeyFeature {
+    async fn check(&self, ctx: &FeatureCheckContext<'_>) -> FeatureCheckResult {
+        if !ctx.plan.features().api_access {
+            return FeatureCheckResult::payment_required("Your plan does not include api access");
+        }
+
         FeatureCheckResult::Allowed
     }
 }

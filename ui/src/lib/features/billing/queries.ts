@@ -15,7 +15,7 @@ export function useBillingPlansQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.billing.plans(),
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/billing/plans');
+			const { data } = await apiClient.GET('/api/v1/billing/plans');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch billing plans');
 			}
@@ -30,7 +30,7 @@ export function useBillingPlansQuery() {
 export function useCheckoutMutation() {
 	return createMutation(() => ({
 		mutationFn: async (plan: BillingPlan) => {
-			const { data } = await apiClient.POST('/api/billing/checkout', {
+			const { data } = await apiClient.POST('/api/v1/billing/checkout', {
 				body: { plan, url: window.location.origin }
 			});
 			if (!data?.success || !data.data) {
@@ -50,7 +50,7 @@ export function useCheckoutMutation() {
 export function useCustomerPortalMutation() {
 	return createMutation(() => ({
 		mutationFn: async () => {
-			const { data } = await apiClient.POST('/api/billing/portal', {
+			const { data } = await apiClient.POST('/api/v1/billing/portal', {
 				body: window.location.origin
 			});
 			if (!data?.success || !data.data) {

@@ -2,7 +2,7 @@ use crate::server::auth::middleware::auth::AuthenticatedEntity;
 use crate::server::auth::middleware::features::{
     BlockedInDemoMode, InviteUsersFeature, RequireFeature,
 };
-use crate::server::auth::middleware::permissions::RequireAdmin;
+use crate::server::auth::middleware::permissions::{Admin, Authorized};
 use crate::server::config::AppState;
 use crate::server::invites::r#impl::base::Invite;
 use crate::server::organizations::r#impl::api::CreateInviteRequest;
@@ -41,23 +41,40 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "Invite created", body = ApiResponse<Invite>),
         (status = 403, description = "Cannot create invite with higher permissions", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_invite(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
     RequireFeature { plan, .. }: RequireFeature<InviteUsersFeature>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     Json(request): Json<CreateInviteRequest>,
 ) -> ApiResult<Json<ApiResponse<Invite>>> {
-    if request.permissions > user.permissions {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
+
+    // Get user permissions and email from entity
+    let (permissions, from_email) = match &auth.entity {
+        AuthenticatedEntity::User {
+            permissions, email, ..
+        } => (*permissions, Some(email.clone())),
+        AuthenticatedEntity::ApiKey { permissions, .. } => (*permissions, None),
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
+    if request.permissions > permissions {
         return Err(ApiError::forbidden(
             "Cannot create invite with higher permissions than your own",
         ));
     }
 
     for network_id in &request.network_ids {
-        if !user.network_ids.contains(network_id) {
+        if !network_ids.contains(network_id) {
             return Err(ApiError::forbidden(
                 "Cannot grant access to networks you don't have access to",
             ));
@@ -67,7 +84,7 @@ async fn create_invite(
     if let Some(max_seats) = plan.config().included_seats
         && plan.config().seat_cents.is_none()
     {
-        let org_filter = EntityFilter::unfiltered().organization_id(&user.organization_id);
+        let org_filter = EntityFilter::unfiltered().organization_id(&organization_id);
 
         let current_members = state
             .services
@@ -80,7 +97,7 @@ async fn create_invite(
         let pending_invites = state
             .services
             .invite_service
-            .get_org_invites(&user.organization_id)
+            .get_org_invites(&organization_id)
             .await
             .unwrap_or_default()
             .len();
@@ -112,13 +129,12 @@ async fn create_invite(
     }
 
     let send_to = request.send_to.clone();
-    let from_user = user.email.clone();
     let expiration_hours = request.expiration_hours.unwrap_or(168); // Default 7 days
 
     let invite = Invite::with_expiration(
-        user.organization_id,
+        organization_id,
         state.config.public_url.clone(),
-        user.user_id,
+        user_id,
         expiration_hours,
         request.permissions,
         request.network_ids,
@@ -128,19 +144,20 @@ async fn create_invite(
     let invite = state
         .services
         .invite_service
-        .create(invite, user.clone().into())
+        .create(invite, auth.entity.clone())
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?;
 
     if let Some(send_to) = send_to
         && let Some(email_service) = &state.services.email_service
+        && let Some(from_addr) = from_email
     {
         let url = format!(
             "{}/api/invites/{}/accept",
             invite.base.url.clone(),
             invite.id
         );
-        email_service.send_invite(send_to, from_user, url).await?;
+        email_service.send_invite(send_to, from_addr, url).await?;
     }
 
     Ok(Json(ApiResponse::success(invite)))
@@ -155,20 +172,32 @@ async fn create_invite(
     responses(
         (status = 200, description = "Invite details", body = ApiResponse<Invite>),
         (status = 400, description = "Invalid or expired invite", body = ApiErrorResponse),
+        (status = 403, description = "Access denied", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_invite(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(_user): RequireAdmin,
+    auth: Authorized<Admin>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<Invite>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     let invite = state
         .services
         .invite_service
         .get_valid_invite(id)
         .await
         .map_err(|e| ApiError::bad_request(&e.to_string()))?;
+
+    // Validate invite belongs to the user's organization
+    if invite.base.organization_id != organization_id {
+        return Err(ApiError::forbidden(
+            "You can only view invites from your organization",
+        ));
+    }
 
     Ok(Json(ApiResponse::success(invite)))
 }
@@ -181,23 +210,37 @@ async fn get_invite(
     responses(
         (status = 200, description = "List of active invites", body = ApiResponse<Vec<Invite>>),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_invites(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
 ) -> ApiResult<Json<ApiResponse<Vec<Invite>>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
+
+    // Get user permissions from entity
+    let permissions = match &auth.entity {
+        AuthenticatedEntity::User { permissions, .. }
+        | AuthenticatedEntity::ApiKey { permissions, .. } => *permissions,
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
     // Show user invites that they created or created for users with permissions lower than them
     let invites = state
         .services
         .invite_service
-        .list_active_invites(&user.organization_id)
+        .list_active_invites(&organization_id)
         .await
         .into_iter()
         .filter(|i| {
-            i.base.created_by == user.user_id
-                || i.base.permissions < user.permissions
-                || user.permissions == UserOrgPermissions::Owner
+            i.base.created_by == user_id
+                || i.base.permissions < permissions
+                || permissions == UserOrgPermissions::Owner
         })
         .collect();
 
@@ -215,14 +258,28 @@ async fn get_invites(
         (status = 400, description = "Invalid invite", body = ApiErrorResponse),
         (status = 403, description = "Cannot revoke this invite", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn revoke_invite(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
+
+    // Get user permissions from entity
+    let permissions = match &auth.entity {
+        AuthenticatedEntity::User { permissions, .. }
+        | AuthenticatedEntity::ApiKey { permissions, .. } => *permissions,
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
     // Get the invite to verify ownership
     let invite = state
         .services
@@ -231,16 +288,16 @@ async fn revoke_invite(
         .await
         .map_err(|e| ApiError::bad_request(&e.to_string()))?;
 
-    if invite.base.organization_id != user.organization_id {
+    if invite.base.organization_id != organization_id {
         return Err(ApiError::forbidden(
             "Cannot revoke invites from other organizations",
         ));
     }
 
     // Verify user can revoke this invite
-    if !(user.user_id == invite.base.created_by
-        || invite.base.permissions < user.permissions
-        || user.permissions == UserOrgPermissions::Owner)
+    if !(user_id == invite.base.created_by
+        || invite.base.permissions < permissions
+        || permissions == UserOrgPermissions::Owner)
     {
         return Err(ApiError::forbidden(
             "You can only revoke invites that you created or invites for users with lower permissions than you",
@@ -250,7 +307,7 @@ async fn revoke_invite(
     state
         .services
         .invite_service
-        .delete(&id, user.into())
+        .delete(&id, auth.into_entity())
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?;
 

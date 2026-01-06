@@ -451,7 +451,7 @@ pub async fn setup_authenticated_user(client: &TestClient) -> Result<User, Strin
 
 pub async fn wait_for_organization(client: &TestClient) -> Result<Organization, String> {
     retry("wait for organization to be created", 15, 2, || async {
-        let organization: Option<Organization> = client.get("/api/organizations").await?;
+        let organization: Option<Organization> = client.get("/api/v1/organizations").await?;
         organization.ok_or_else(|| "No organization found yet".to_string())
     })
     .await
@@ -459,7 +459,7 @@ pub async fn wait_for_organization(client: &TestClient) -> Result<Organization, 
 
 pub async fn wait_for_network(client: &TestClient) -> Result<Network, String> {
     retry("wait for network to be created", 15, 2, || async {
-        let networks: Vec<Network> = client.get("/api/networks").await?;
+        let networks: Vec<Network> = client.get("/api/v1/networks").await?;
         networks
             .first()
             .cloned()
@@ -470,7 +470,7 @@ pub async fn wait_for_network(client: &TestClient) -> Result<Network, String> {
 
 pub async fn wait_for_daemon(client: &TestClient) -> Result<Daemon, String> {
     retry("wait for daemon registration", 15, 2, || async {
-        let daemons: Vec<Daemon> = client.get("/api/daemons").await?;
+        let daemons: Vec<Daemon> = client.get("/api/v1/daemons").await?;
 
         if daemons.is_empty() {
             return Err("No daemons registered yet".to_string());

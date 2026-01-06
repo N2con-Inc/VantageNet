@@ -16,7 +16,7 @@ export function useTagsQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.tags.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/tags');
+			const { data } = await apiClient.GET('/api/v1/tags');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch tags');
 			}
@@ -33,7 +33,7 @@ export function useCreateTagMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (tag: Tag) => {
-			const { data } = await apiClient.POST('/api/tags', { body: tag });
+			const { data } = await apiClient.POST('/api/v1/tags', { body: tag });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create tag');
 			}
@@ -55,7 +55,7 @@ export function useUpdateTagMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (tag: Tag) => {
-			const { data } = await apiClient.PUT('/api/tags/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/tags/{id}', {
 				params: { path: { id: tag.id } },
 				body: tag
 			});
@@ -81,7 +81,7 @@ export function useDeleteTagMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/tags/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/tags/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -106,7 +106,7 @@ export function useBulkDeleteTagsMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/tags/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/tags/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete tags');
 			}

@@ -16,7 +16,6 @@ use crate::server::{
 pub struct OrganizationBase {
     #[serde(default)]
     #[schema(read_only, required)]
-    #[serde(skip_serializing)]
     pub stripe_customer_id: Option<String>,
     #[validate(length(min = 0, max = 100))]
     pub name: String,

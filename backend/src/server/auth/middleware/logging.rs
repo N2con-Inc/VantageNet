@@ -36,6 +36,9 @@ pub async fn request_logging_middleware(
         Some(AuthenticatedEntity::Daemon { daemon_id, .. }) => {
             ("daemon", Some(daemon_id.to_string()))
         }
+        Some(AuthenticatedEntity::ApiKey { api_key_id, .. }) => {
+            ("api_key", Some(api_key_id.to_string()))
+        }
         Some(AuthenticatedEntity::System) => ("system", None),
         Some(AuthenticatedEntity::Anonymous) | None => ("anonymous", None),
     };

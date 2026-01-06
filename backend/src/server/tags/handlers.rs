@@ -1,4 +1,4 @@
-use crate::server::auth::middleware::permissions::RequireAdmin;
+use crate::server::auth::middleware::permissions::{Admin, Authorized, Member};
 use crate::server::shared::handlers::traits::create_handler;
 use crate::server::shared::services::traits::CrudService;
 use crate::server::shared::storage::filter::EntityFilter;
@@ -51,15 +51,18 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 400, description = "Validation error: name empty or too long", body = ApiErrorResponse),
         (status = 409, description = "Tag name already exists in this organization", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn create_tag(
     state: State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
     Json(tag): Json<Tag>,
 ) -> ApiResult<Json<ApiResponse<Tag>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
     let name_filter = EntityFilter::unfiltered()
-        .organization_id(&user.organization_id)
+        .organization_id(&organization_id)
         .name(tag.base.name.clone());
 
     if let Some(existing_with_name) = state.services.tag_service.get_one(name_filter).await? {
@@ -69,5 +72,5 @@ pub async fn create_tag(
         )));
     }
 
-    create_handler::<Tag>(state, RequireAdmin(user).into(), Json(tag)).await
+    create_handler::<Tag>(state, auth.into_permission::<Member>(), Json(tag)).await
 }

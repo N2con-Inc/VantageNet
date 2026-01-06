@@ -31,7 +31,7 @@ async fn test_service_network_validation(ctx: &TestContext) -> Result<(), String
         organization_id: ctx.organization_id,
         ..Default::default()
     });
-    let second_network: Network = ctx.client.post("/api/networks", &second_network).await?;
+    let second_network: Network = ctx.client.post("/api/v1/networks", &second_network).await?;
 
     // Create host on the first network
     let host_request = CreateHostRequest {
@@ -44,8 +44,9 @@ async fn test_service_network_validation(ctx: &TestContext) -> Result<(), String
         tags: Vec::new(),
         interfaces: vec![],
         ports: vec![],
+        services: vec![],
     };
-    let created_host: HostResponse = ctx.client.post("/api/hosts", &host_request).await?;
+    let created_host: HostResponse = ctx.client.post("/api/v1/hosts", &host_request).await?;
 
     // Try to create a service on the second network that references the host on the first network
     let service_def = ServiceDefinitionRegistry::all_service_definitions()[0].clone();
@@ -58,11 +59,12 @@ async fn test_service_network_validation(ctx: &TestContext) -> Result<(), String
         virtualization: None,
         source: EntitySource::System,
         tags: Vec::new(),
+        position: 0,
     });
 
     let result = ctx
         .client
-        .post_expect_status("/api/services", &service, StatusCode::BAD_REQUEST)
+        .post_expect_status("/api/v1/services", &service, StatusCode::BAD_REQUEST)
         .await;
     assert!(
         result.is_ok(),
@@ -73,10 +75,10 @@ async fn test_service_network_validation(ctx: &TestContext) -> Result<(), String
 
     // Cleanup
     ctx.client
-        .delete_no_content(&format!("/api/hosts/{}", created_host.id))
+        .delete_no_content(&format!("/api/v1/hosts/{}", created_host.id))
         .await?;
     ctx.client
-        .delete_no_content(&format!("/api/networks/{}", second_network.id))
+        .delete_no_content(&format!("/api/v1/networks/{}", second_network.id))
         .await?;
 
     Ok(())
@@ -85,13 +87,13 @@ async fn test_service_network_validation(ctx: &TestContext) -> Result<(), String
 async fn test_host_daemon_deletion_prevention(ctx: &TestContext) -> Result<(), String> {
     println!("Testing: Cannot delete host with associated daemon...");
 
-    let daemons: Vec<Daemon> = ctx.client.get("/api/daemons").await?;
+    let daemons: Vec<Daemon> = ctx.client.get("/api/v1/daemons").await?;
 
     if let Some(daemon) = daemons.first() {
         let result = ctx
             .client
             .get_expect_status(
-                &format!("/api/hosts/{}", daemon.base.host_id),
+                &format!("/api/v1/hosts/{}", daemon.base.host_id),
                 StatusCode::OK,
             )
             .await;
@@ -100,7 +102,7 @@ async fn test_host_daemon_deletion_prevention(ctx: &TestContext) -> Result<(), S
             let response = ctx
                 .client
                 .client
-                .delete(format!("{}/api/hosts/{}", BASE_URL, daemon.base.host_id))
+                .delete(format!("{}/api/v1/hosts/{}", BASE_URL, daemon.base.host_id))
                 .send()
                 .await
                 .map_err(|e| format!("Delete request failed: {}", e))?;
@@ -125,15 +127,15 @@ async fn test_bulk_delete_validation(ctx: &TestContext) -> Result<(), String> {
     let mut tag1 = Tag::new(TagBase::default());
     tag1.base.organization_id = ctx.organization_id;
     tag1.base.name = "Bulk Test Tag 1".to_string();
-    let created1: Tag = ctx.client.post("/api/tags", &tag1).await?;
+    let created1: Tag = ctx.client.post("/api/v1/tags", &tag1).await?;
 
     let mut tag2 = Tag::new(TagBase::default());
     tag2.base.organization_id = ctx.organization_id;
     tag2.base.name = "Bulk Test Tag 2".to_string();
-    let created2: Tag = ctx.client.post("/api/tags", &tag2).await?;
+    let created2: Tag = ctx.client.post("/api/v1/tags", &tag2).await?;
 
     let ids = vec![created1.id, created2.id];
-    let result: serde_json::Value = ctx.client.post("/api/tags/bulk-delete", &ids).await?;
+    let result: serde_json::Value = ctx.client.post("/api/v1/tags/bulk-delete", &ids).await?;
 
     assert!(
         result.get("deleted").is_some() || result.get("deleted_count").is_some(),
@@ -143,11 +145,17 @@ async fn test_bulk_delete_validation(ctx: &TestContext) -> Result<(), String> {
 
     let result1 = ctx
         .client
-        .get_expect_status(&format!("/api/tags/{}", created1.id), StatusCode::NOT_FOUND)
+        .get_expect_status(
+            &format!("/api/v1/tags/{}", created1.id),
+            StatusCode::NOT_FOUND,
+        )
         .await;
     let result2 = ctx
         .client
-        .get_expect_status(&format!("/api/tags/{}", created2.id), StatusCode::NOT_FOUND)
+        .get_expect_status(
+            &format!("/api/v1/tags/{}", created2.id),
+            StatusCode::NOT_FOUND,
+        )
         .await;
 
     assert!(result1.is_ok(), "First tag should be deleted");

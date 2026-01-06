@@ -16,6 +16,7 @@ export interface CardAction {
 	onClick: () => void;
 	disabled?: boolean;
 	animation?: string;
+	forceLabel?: boolean;
 }
 
 export interface CardFieldItem {

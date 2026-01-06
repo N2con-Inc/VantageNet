@@ -16,7 +16,7 @@ pub async fn run_discovery(client: &TestClient) -> Result<(), String> {
 
     let mut event_source = client
         .client
-        .get(format!("{}/api/discovery/stream", BASE_URL))
+        .get(format!("{}/api/v1/discovery/stream", BASE_URL))
         .send()
         .await
         .map_err(|e| format!("Failed to connect to SSE: {}", e))?;
@@ -70,7 +70,7 @@ pub async fn verify_home_assistant_discovered(client: &TestClient) -> Result<Ser
     println!("\n=== Verifying Home Assistant Discovery ===");
 
     retry("find Home Assistant service", 10, 2, || async {
-        let services: Vec<Service> = client.get("/api/services").await?;
+        let services: Vec<Service> = client.get("/api/v1/services").await?;
 
         if services.is_empty() {
             return Err("No services found yet".to_string());
@@ -100,7 +100,7 @@ pub async fn create_group(client: &TestClient, network_id: Uuid) -> Result<Group
     group.base.network_id = network_id;
 
     retry("create Group", 10, 3, || async {
-        let created_group: Group = client.post("/api/groups", &group).await?;
+        let created_group: Group = client.post("/api/v1/groups", &group).await?;
         println!("✅ Created group");
         Ok(created_group)
     })
@@ -114,7 +114,7 @@ pub async fn create_tag(client: &TestClient, organization_id: Uuid) -> Result<Ta
     tag.base.organization_id = organization_id;
 
     retry("create Tag", 10, 3, || async {
-        let created_tag: Tag = client.post("/api/tags", &tag).await?;
+        let created_tag: Tag = client.post("/api/v1/tags", &tag).await?;
         println!("✅ Created Tag");
         Ok(created_tag)
     })

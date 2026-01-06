@@ -17,11 +17,11 @@ import type {
 	CreateHostWithServicesRequest,
 	UpdateHostWithServicesRequest,
 	CreateHostRequest,
-	CreateInterfaceInput,
-	CreatePortInput,
 	UpdateHostRequest,
-	UpdateInterfaceInput,
-	UpdatePortInput,
+	InterfaceInput,
+	PortInput,
+	ServiceInput,
+	BindingInput,
 	AllInterfaces
 } from './types/base';
 import type { Service } from '$lib/features/services/types/base';
@@ -68,7 +68,28 @@ export function formDataToHostPrimitive(formData: HostFormData): Host {
 }
 
 /**
- * Transform HostFormData to CreateHostRequest format for API
+ * Helper to convert Service binding to BindingInput format for API
+ */
+function toBindingInput(binding: Service['bindings'][0]): BindingInput {
+	if (binding.type === 'Interface') {
+		return {
+			type: 'Interface',
+			id: binding.id,
+			interface_id: binding.interface_id
+		};
+	} else {
+		return {
+			type: 'Port',
+			id: binding.id,
+			port_id: binding.port_id,
+			interface_id: binding.interface_id ?? undefined
+		};
+	}
+}
+
+/**
+ * Transform HostFormData to CreateHostRequest format for API.
+ * Now includes services for single-step host creation with all children.
  */
 function toCreateHostRequest(formData: HostFormData): CreateHostRequest {
 	return {
@@ -80,7 +101,8 @@ function toCreateHostRequest(formData: HostFormData): CreateHostRequest {
 		hidden: formData.hidden,
 		tags: formData.tags,
 		interfaces: formData.interfaces.map(
-			(iface, index): CreateInterfaceInput => ({
+			(iface, index): InterfaceInput => ({
+				id: iface.id,
 				subnet_id: iface.subnet_id,
 				ip_address: iface.ip_address,
 				mac_address: iface.mac_address,
@@ -89,9 +111,21 @@ function toCreateHostRequest(formData: HostFormData): CreateHostRequest {
 			})
 		),
 		ports: formData.ports.map(
-			(port): CreatePortInput => ({
+			(port): PortInput => ({
+				id: port.id,
 				number: port.number,
 				protocol: port.protocol
+			})
+		),
+		services: formData.services.map(
+			(service, index): ServiceInput => ({
+				id: service.id,
+				service_definition: service.service_definition,
+				name: service.name,
+				bindings: service.bindings.map(toBindingInput),
+				virtualization: service.virtualization,
+				tags: service.tags,
+				position: index
 			})
 		)
 	};
@@ -107,7 +141,7 @@ export function useHostsQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.hosts.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/hosts');
+			const { data } = await apiClient.GET('/api/v1/hosts');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch hosts');
 			}
@@ -138,7 +172,7 @@ export function useCreateHostMutation() {
 	return createMutation(() => ({
 		mutationFn: async (data: CreateHostWithServicesRequest) => {
 			const request = toCreateHostRequest(data.host);
-			const { data: result } = await apiClient.POST('/api/hosts', { body: request });
+			const { data: result } = await apiClient.POST('/api/v1/hosts', { body: request });
 			if (!result?.success || !result.data) {
 				throw new Error(result?.error || 'Failed to create host');
 			}
@@ -165,19 +199,15 @@ export function useCreateHostMutation() {
 }
 
 /**
- * Mutation hook for updating a host
+ * Mutation hook for updating a host.
+ * All entities (interfaces, ports, services, bindings) use client-provided UUIDs.
+ * Backend determines create vs update by checking if the ID exists for this host.
  */
 export function useUpdateHostMutation() {
 	const queryClient = useQueryClient();
 
 	return createMutation(() => ({
 		mutationFn: async (data: UpdateHostWithServicesRequest) => {
-			// Get current saved interfaces/ports from cache to detect new items
-			const savedInterfaces = queryClient.getQueryData<Interface[]>(queryKeys.interfaces.all) ?? [];
-			const savedPorts = queryClient.getQueryData<Port[]>(queryKeys.ports.all) ?? [];
-			const savedInterfaceIds = new Set(savedInterfaces.map((i) => i.id));
-			const savedPortIds = new Set(savedPorts.map((p) => p.id));
-
 			const request: UpdateHostRequest = {
 				id: data.host.id,
 				name: data.host.name,
@@ -187,30 +217,38 @@ export function useUpdateHostMutation() {
 				hidden: data.host.hidden,
 				tags: data.host.tags,
 				expected_updated_at: data.host.updated_at,
-				interfaces: data.interfaces
-					? data.interfaces.map(
-							(iface, index): UpdateInterfaceInput => ({
-								id: savedInterfaceIds.has(iface.id) ? iface.id : null,
-								subnet_id: iface.subnet_id,
-								ip_address: iface.ip_address,
-								mac_address: iface.mac_address,
-								name: iface.name,
-								position: index // Use array order as position
-							})
-						)
-					: null,
-				ports: data.ports
-					? data.ports.map(
-							(port): UpdatePortInput => ({
-								id: savedPortIds.has(port.id) ? port.id : null,
-								number: port.number,
-								protocol: port.protocol
-							})
-						)
-					: null
+				// Always send arrays (empty = no changes to sync)
+				interfaces: (data.interfaces ?? []).map(
+					(iface, index): InterfaceInput => ({
+						id: iface.id,
+						subnet_id: iface.subnet_id,
+						ip_address: iface.ip_address,
+						mac_address: iface.mac_address,
+						name: iface.name,
+						position: index
+					})
+				),
+				ports: (data.ports ?? []).map(
+					(port): PortInput => ({
+						id: port.id,
+						number: port.number,
+						protocol: port.protocol
+					})
+				),
+				services: (data.services ?? []).map(
+					(service, index): ServiceInput => ({
+						id: service.id,
+						service_definition: service.service_definition,
+						name: service.name,
+						bindings: service.bindings.map(toBindingInput),
+						virtualization: service.virtualization,
+						tags: service.tags,
+						position: index
+					})
+				)
 			};
 
-			const { data: result } = await apiClient.PUT('/api/hosts/{id}', {
+			const { data: result } = await apiClient.PUT('/api/v1/hosts/{id}', {
 				params: { path: { id: data.host.id } },
 				body: request
 			});
@@ -218,49 +256,9 @@ export function useUpdateHostMutation() {
 				throw new Error(result?.error || 'Failed to update host');
 			}
 
-			// If services were provided, handle bulk update
-			const updatedServices: Service[] = [];
-			if (data.services !== null) {
-				const currentServices = queryClient.getQueryData<Service[]>(queryKeys.services.all) ?? [];
-				const hostServices = currentServices.filter((s) => s.host_id === data.host.id);
-
-				const newServiceIds = new Set(data.services.map((s) => s.id));
-				const currentServiceIds = new Set(hostServices.map((s) => s.id));
-
-				// Detect creates, updates, deletes
-				const toCreate = data.services.filter(
-					(s) => !currentServiceIds.has(s.id) || s.id.startsWith('00000000')
-				);
-				const toUpdate = data.services.filter(
-					(s) => currentServiceIds.has(s.id) && !s.id.startsWith('00000000')
-				);
-				const toDelete = hostServices.filter((s) => !newServiceIds.has(s.id));
-
-				// Execute all service operations
-				const serviceResults = await Promise.all([
-					...toCreate.map((s) =>
-						apiClient.POST('/api/services', { body: { ...s, id: undefined } as unknown as Service })
-					),
-					...toUpdate.map((s) =>
-						apiClient.PUT('/api/services/{id}', { params: { path: { id: s.id } }, body: s })
-					),
-					...toDelete.map((s) =>
-						apiClient.DELETE('/api/services/{id}', { params: { path: { id: s.id } } })
-					)
-				]);
-
-				// Collect created/updated services from results
-				for (let i = 0; i < toCreate.length + toUpdate.length; i++) {
-					const serviceResult = serviceResults[i];
-					if (serviceResult.data?.success && serviceResult.data.data) {
-						updatedServices.push(serviceResult.data.data as Service);
-					}
-				}
-			}
-
-			return { response: result.data, updatedServices };
+			return { response: result.data };
 		},
-		onSuccess: async ({ response, updatedServices }) => {
+		onSuccess: ({ response }) => {
 			const hostId = response.id;
 
 			// Update host in cache
@@ -281,12 +279,10 @@ export function useUpdateHostMutation() {
 				return [...others, ...response.ports];
 			});
 
-			// Replace services for this host with updated ones
+			// Replace services for this host (synced via host endpoint with positions)
 			queryClient.setQueryData<Service[]>(queryKeys.services.all, (old) => {
 				const others = old?.filter((s) => s.host_id !== hostId) ?? [];
-				// Use updatedServices if available, otherwise use response services
-				const servicesToCache = updatedServices.length > 0 ? updatedServices : response.services;
-				return [...others, ...servicesToCache];
+				return [...others, ...response.services];
 			});
 		}
 	}));
@@ -300,7 +296,7 @@ export function useDeleteHostMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/hosts/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/hosts/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -340,7 +336,7 @@ export function useBulkDeleteHostsMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/hosts/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/hosts/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete hosts');
 			}
@@ -390,7 +386,7 @@ export function useConsolidateHostsMutation() {
 			const otherHostName = hosts.find((h) => h.id === otherHostId)?.name;
 
 			const { data } = await apiClient.PUT(
-				'/api/hosts/{destination_host}/consolidate/{other_host}',
+				'/api/v1/hosts/{destination_host}/consolidate/{other_host}',
 				{
 					params: { path: { destination_host: destinationHostId, other_host: otherHostId } }
 				}

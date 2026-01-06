@@ -12,12 +12,13 @@
 	import { subnetTypes } from '$lib/shared/stores/metadata';
 	import { isContainerSubnet } from '$lib/features/subnets/queries';
 	import {
-		topology as globalTopology,
+		useTopologiesQuery,
+		useUpdateTopologyMutation,
+		selectedTopologyId,
 		topologyOptions,
-		updateTopology,
 		selectedNode as globalSelectedNode,
 		selectedEdge as globalSelectedEdge
-	} from '../../store';
+	} from '../../queries';
 	import type { SubnetRenderData, Topology } from '../../types/base';
 	import { type Writable, get } from 'svelte/store';
 	import { getContext } from 'svelte';
@@ -32,9 +33,14 @@
 
 	let { id, data, selected, width, height }: NodeProps = $props();
 
-	// Try to get topology from context (for share/embed pages), fallback to global store
+	// Try to get topology from context (for share/embed pages), fallback to TanStack query
 	const topologyContext = getContext<Writable<Topology> | undefined>('topology');
-	let topology = $derived(topologyContext ? $topologyContext : $globalTopology);
+	const topologiesQuery = useTopologiesQuery();
+	const updateTopologyMutation = useUpdateTopologyMutation();
+	let topologiesData = $derived(topologiesQuery.data ?? []);
+	let topology = $derived(
+		topologyContext ? $topologyContext : topologiesData.find((t) => t.id === $selectedTopologyId)
+	);
 
 	// Try to get selection from context (for share/embed pages), fallback to global store
 	const selectedNodeContext = getContext<Writable<Node | null> | undefined>('selectedNode');
@@ -103,7 +109,7 @@
 			node.position.x = roundedX;
 			node.position.y = roundedY;
 
-			await updateTopology(topology);
+			await updateTopologyMutation.mutateAsync(topology);
 		}
 	}
 </script>

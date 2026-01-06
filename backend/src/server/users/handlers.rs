@@ -1,6 +1,5 @@
-use crate::server::auth::middleware::auth::AuthenticatedUser;
 use crate::server::auth::middleware::features::{BlockedInDemoMode, RequireFeature};
-use crate::server::auth::middleware::permissions::{RequireAdmin, RequireMember};
+use crate::server::auth::middleware::permissions::{Admin, Authorized, IsUser, Member};
 use crate::server::shared::handlers::traits::{BulkDeleteResponse, CrudHandlers, delete_handler};
 use crate::server::shared::storage::filter::EntityFilter;
 use crate::server::shared::types::api::{ApiError, ApiErrorResponse, EmptyApiResponse};
@@ -38,14 +37,16 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
     responses(
         (status = 200, description = "User found", body = ApiResponse<User>),
         (status = 404, description = "User not found", body = ApiErrorResponse),
+        (status = 403, description = "Access denied", body = ApiErrorResponse),
     ),
     security(("session" = []))
 )]
 pub async fn get_user_by_id(
     State(state): State<Arc<AppState>>,
-    _user: AuthenticatedUser,
+    auth: Authorized<IsUser>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<User>>> {
+    let auth_org_id = auth.require_organization_id()?;
     let service = User::get_service(&state);
 
     let mut user = service
@@ -53,6 +54,13 @@ pub async fn get_user_by_id(
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?
         .ok_or_else(|| ApiError::not_found(format!("User '{}' not found", id)))?;
+
+    // Validate user is in the same organization
+    if user.base.organization_id != auth_org_id {
+        return Err(ApiError::forbidden(
+            "You can only view users in your organization",
+        ));
+    }
 
     // Hydrate network_ids from junction table
     state
@@ -73,13 +81,31 @@ pub async fn get_user_by_id(
     responses(
         (status = 200, description = "List of users", body = ApiResponse<Vec<User>>),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn get_all_users(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
 ) -> ApiResult<Json<ApiResponse<Vec<User>>>> {
-    let org_filter = EntityFilter::unfiltered().organization_id(&user.organization_id);
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
+
+    // Get user permissions from entity
+    let permissions = match &auth.entity {
+        crate::server::auth::middleware::auth::AuthenticatedEntity::User {
+            permissions, ..
+        }
+        | crate::server::auth::middleware::auth::AuthenticatedEntity::ApiKey {
+            permissions, ..
+        } => *permissions,
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
+    let org_filter = EntityFilter::unfiltered().organization_id(&organization_id);
 
     let service = User::get_service(&state);
     let mut users: Vec<User> = service
@@ -88,9 +114,9 @@ pub async fn get_all_users(
         .map_err(|e| ApiError::internal_error(&e.to_string()))?
         .iter()
         .filter(|u| {
-            user.permissions == UserOrgPermissions::Owner
-                || u.base.permissions < user.permissions
-                || u.id == user.user_id
+            permissions == UserOrgPermissions::Owner
+                || u.base.permissions < permissions
+                || u.id == user_id
         })
         .cloned()
         .collect();
@@ -118,14 +144,29 @@ pub async fn get_all_users(
         (status = 403, description = "Cannot delete user with higher permissions", body = ApiErrorResponse),
         (status = 409, description = "Cannot delete the only owner", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn delete_user(
     state: State<Arc<AppState>>,
-    require_admin: RequireAdmin,
+    auth: Authorized<Admin>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     id: Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
+    // Get user permissions from entity
+    let permissions = match &auth.entity {
+        crate::server::auth::middleware::auth::AuthenticatedEntity::User {
+            permissions, ..
+        }
+        | crate::server::auth::middleware::auth::AuthenticatedEntity::ApiKey {
+            permissions, ..
+        } => *permissions,
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
     let user_to_be_deleted = state
         .services
         .user_service
@@ -133,7 +174,7 @@ pub async fn delete_user(
         .await?
         .ok_or_else(|| anyhow!("User {} does not exist", id.0))?;
 
-    if require_admin.0.permissions < user_to_be_deleted.base.permissions {
+    if permissions < user_to_be_deleted.base.permissions {
         return Err(ApiError::unauthorized(
             "You can only delete users with lower permissions than you".to_string(),
         ));
@@ -142,7 +183,7 @@ pub async fn delete_user(
     let count_owners = state
         .services
         .user_service
-        .get_organization_owners(&require_admin.0.organization_id)
+        .get_organization_owners(&organization_id)
         .await?
         .len();
 
@@ -152,7 +193,7 @@ pub async fn delete_user(
         ));
     }
 
-    delete_handler::<User>(state, require_admin.into(), id).await
+    delete_handler::<User>(state, auth.into_permission::<Member>(), id).await
 }
 
 /// Update your own user record
@@ -171,12 +212,13 @@ pub async fn delete_user(
 )]
 pub async fn update_user(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    auth: Authorized<IsUser>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     Path(id): Path<Uuid>,
     Json(mut request): Json<User>,
 ) -> ApiResult<Json<ApiResponse<User>>> {
-    if user.user_id != id {
+    let auth_user_id = auth.require_user_id()?;
+    if auth_user_id != id {
         return Err(ApiError::unauthorized(
             "You can only update your own user record".to_string(),
         ));
@@ -208,7 +250,7 @@ pub async fn update_user(
     request.base.oidc_linked_at = existing.base.oidc_linked_at;
 
     let updated = service
-        .update(&mut request, user.into())
+        .update(&mut request, auth.into_entity())
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?;
 
@@ -227,15 +269,30 @@ pub async fn update_user(
         (status = 403, description = "Cannot update user with higher permissions", body = ApiErrorResponse),
         (status = 404, description = "User not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn admin_update_user(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(admin): RequireAdmin,
+    auth: Authorized<Admin>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     Path(id): Path<Uuid>,
     Json(mut request): Json<User>,
 ) -> ApiResult<Json<ApiResponse<User>>> {
+    let admin_user_id = auth
+        .user_id()
+        .ok_or_else(|| ApiError::forbidden("User context required"))?;
+
+    // Get admin permissions from entity
+    let admin_permissions = match &auth.entity {
+        crate::server::auth::middleware::auth::AuthenticatedEntity::User {
+            permissions, ..
+        }
+        | crate::server::auth::middleware::auth::AuthenticatedEntity::ApiKey {
+            permissions, ..
+        } => *permissions,
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
     let service = User::get_service(&state);
 
     // Verify target user exists
@@ -246,22 +303,22 @@ async fn admin_update_user(
         .ok_or_else(|| ApiError::not_found(format!("User '{}' not found", id)))?;
 
     // Cannot edit yourself through this endpoint
-    if admin.user_id == id {
+    if admin_user_id == id {
         return Err(ApiError::forbidden(
             "Use the regular update endpoint to edit your own user",
         ));
     }
 
     // Can only edit users with lower permissions than yourself
-    if existing.base.permissions >= admin.permissions {
+    if existing.base.permissions >= admin_permissions {
         return Err(ApiError::forbidden(
             "You can only edit users with lower permissions than you",
         ));
     }
 
     // Cannot promote user to same or higher level than yourself
-    if admin.permissions != UserOrgPermissions::Owner
-        && request.base.permissions >= admin.permissions
+    if admin_permissions != UserOrgPermissions::Owner
+        && request.base.permissions >= admin_permissions
     {
         return Err(ApiError::forbidden(
             "You cannot promote a user to your permission level or higher",
@@ -286,7 +343,7 @@ async fn admin_update_user(
     let network_ids = request.base.network_ids.clone();
 
     let updated = service
-        .update(&mut request, admin.into())
+        .update(&mut request, auth.into_entity())
         .await
         .map_err(|e| ApiError::internal_error(&e.to_string()))?;
 
@@ -311,20 +368,35 @@ async fn admin_update_user(
         (status = 200, description = "Users deleted successfully", body = ApiResponse<BulkDeleteResponse>),
         (status = 403, description = "Cannot delete users with higher permissions", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn bulk_delete_users(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
     _demo_check: RequireFeature<BlockedInDemoMode>,
     Json(ids): Json<Vec<Uuid>>,
 ) -> ApiResult<Json<ApiResponse<BulkDeleteResponse>>> {
     use crate::server::shared::handlers::traits::bulk_delete_handler;
 
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
+    // Get user permissions from entity
+    let permissions = match &auth.entity {
+        crate::server::auth::middleware::auth::AuthenticatedEntity::User {
+            permissions, ..
+        }
+        | crate::server::auth::middleware::auth::AuthenticatedEntity::ApiKey {
+            permissions, ..
+        } => *permissions,
+        _ => return Err(ApiError::forbidden("User or API key required")),
+    };
+
     let user_filter = EntityFilter::unfiltered().entity_ids(&ids);
     let users = state.services.user_service.get_all(user_filter).await?;
 
-    if users.iter().any(|u| u.base.permissions > user.permissions) {
+    if users.iter().any(|u| u.base.permissions > permissions) {
         return Err(ApiError::unauthorized(
             "You can only delete users with lower permissions than you".to_string(),
         ));
@@ -333,7 +405,7 @@ pub async fn bulk_delete_users(
     let owners = state
         .services
         .user_service
-        .get_organization_owners(&user.organization_id)
+        .get_organization_owners(&organization_id)
         .await?;
 
     if owners.iter().all(|o| users.contains(o)) {
@@ -344,7 +416,7 @@ pub async fn bulk_delete_users(
 
     bulk_delete_handler::<User>(
         axum::extract::State(state),
-        RequireMember(user),
+        auth.into_permission::<Member>(),
         axum::extract::Json(ids),
     )
     .await

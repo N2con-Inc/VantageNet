@@ -15,6 +15,11 @@ export interface GetAllEntitiesRequest {
 	network_id: string;
 }
 
+// Shared props interface for sidebar tab components
+export interface TabProps {
+	isReadOnly?: boolean;
+}
+
 export function matchConfidenceColor(confidence: MatchConfidence): Color {
 	const confidenceColor: Record<MatchConfidence, Color> = {
 		NotApplicable: 'Gray',

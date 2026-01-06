@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import { createForm } from '@tanstack/svelte-form';
 	import { submitForm } from '$lib/shared/components/forms/form-context';
 	import { required, max } from '$lib/shared/components/forms/validators';
@@ -53,6 +54,17 @@
 	let loading = $state(false);
 	let deleting = $state(false);
 	let createdShare = $state<Share | null>(null);
+	let scrollContainer: HTMLDivElement | null = $state(null);
+
+	// Scroll to bottom when share is created to show the share URL
+	$effect(() => {
+		if (createdShare && scrollContainer) {
+			// Use tick to ensure DOM has updated with the new share URL section
+			tick().then(() => {
+				scrollContainer?.scrollTo({ top: scrollContainer.scrollHeight, behavior: 'smooth' });
+			});
+		}
+	});
 
 	let isEditing = $derived(share !== null);
 	let title = $derived(isEditing ? `Edit ${share?.name || 'Share'}` : 'Share Topology');
@@ -177,9 +189,9 @@
 	onOpen={handleOpen}
 	showCloseButton={true}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon Icon={Share2} color={entities.getColorHelper('Share').color} />
-	</svelte:fragment>
+	{/snippet}
 
 	<form
 		onsubmit={(e) => {
@@ -189,7 +201,7 @@
 		}}
 		class="flex min-h-0 flex-1 flex-col"
 	>
-		<div class="flex-1 overflow-auto p-6">
+		<div class="flex-1 overflow-auto p-6" bind:this={scrollContainer}>
 			<div class="space-y-6">
 				{#if isEditing}
 					<InlineInfo

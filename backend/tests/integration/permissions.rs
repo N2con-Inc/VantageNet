@@ -98,7 +98,7 @@ async fn test_cannot_read_host_on_other_network(
     let result = ctx
         .client
         .get_expect_status(
-            &format!("/api/hosts/{}", created_host.id),
+            &format!("/api/v1/hosts/{}", created_host.id),
             StatusCode::UNAUTHORIZED,
         )
         .await;
@@ -133,12 +133,13 @@ async fn test_cannot_create_host_on_other_network(
         tags: Vec::new(),
         interfaces: vec![],
         ports: vec![],
+        services: vec![],
     };
 
     // Should get 401 Unauthorized (or 403 Forbidden)
     let result = ctx
         .client
-        .post_expect_status("/api/hosts", &host_request, StatusCode::UNAUTHORIZED)
+        .post_expect_status("/api/v1/hosts", &host_request, StatusCode::UNAUTHORIZED)
         .await;
 
     assert!(
@@ -171,7 +172,7 @@ async fn test_cannot_create_subnet_on_other_network(
     // Should get 401 Unauthorized
     let result = ctx
         .client
-        .post_expect_status("/api/subnets", &subnet, StatusCode::UNAUTHORIZED)
+        .post_expect_status("/api/v1/subnets", &subnet, StatusCode::FORBIDDEN)
         .await;
 
     assert!(

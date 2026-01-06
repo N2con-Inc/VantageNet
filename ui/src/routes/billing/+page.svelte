@@ -10,12 +10,20 @@
 	import { useBillingPlansQuery, useCheckoutMutation } from '$lib/features/billing/queries';
 	import { onboardingStore } from '$lib/features/auth/stores/onboarding';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
+	import { useOrganizationQuery } from '$lib/features/organizations/queries';
 	import { pushSuccess, pushError } from '$lib/shared/stores/feedback';
 	import PlanInquiryModal from '$lib/features/billing/PlanInquiryModal.svelte';
 
 	// TanStack Query for current user
 	const currentUserQuery = useCurrentUserQuery();
 	let currentUser = $derived(currentUserQuery.data);
+
+	// TanStack Query for organization
+	const organizationQuery = useOrganizationQuery();
+	let organization = $derived(organizationQuery.data);
+
+	// Returning customers (have existing Stripe customer ID) shouldn't see trial offers
+	let isReturningCustomer = $derived(!!organization?.stripe_customer_id);
 
 	// TanStack Query for config
 	const configQuery = useConfigQuery();
@@ -136,6 +144,7 @@
 					{initialPlanFilter}
 					{recommendedPlan}
 					{forceCommercial}
+					{isReturningCustomer}
 				/>
 			</div>
 		</section>

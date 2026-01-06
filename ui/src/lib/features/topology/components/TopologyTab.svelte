@@ -7,16 +7,16 @@
 	import ShareModal from '$lib/features/shares/components/ShareModal.svelte';
 	import { SvelteFlowProvider } from '@xyflow/svelte';
 	import {
-		topologies,
-		topology,
-		getTopologies,
-		deleteTopology,
-		rebuildTopology,
-		lockTopology,
-		unlockTopology,
+		useTopologiesQuery,
+		useDeleteTopologyMutation,
+		useRebuildTopologyMutation,
+		useLockTopologyMutation,
+		useUnlockTopologyMutation,
 		autoRebuild,
-		hasConflicts
-	} from '../store';
+		hasConflicts,
+		selectedTopologyId,
+		consumePreferredNetwork
+	} from '../queries';
 	import type { Topology } from '../types/base';
 	import TopologyModal from './TopologyModal.svelte';
 	import { getTopologyState } from '../state';
@@ -34,14 +34,17 @@
 	import { useUsersQuery } from '$lib/features/users/queries';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
 	import { permissions } from '$lib/shared/stores/metadata';
-	import { onMount } from 'svelte';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Get current user to check permissions
 	const currentUserQuery = useCurrentUserQuery();
 	let currentUser = $derived(currentUserQuery.data);
 	let canViewUsers = $derived(
 		currentUser
-			? permissions.getMetadata(currentUser.permissions).can_manage_user_permissions.length > 0
+			? (permissions.getMetadata(currentUser.permissions)?.grantable_user_permissions?.length ??
+					0) > 0
 			: false
 	);
 
@@ -50,14 +53,44 @@
 	const subnetsQuery = useSubnetsQuery();
 	const groupsQuery = useGroupsQuery();
 	const usersQuery = useUsersQuery({ enabled: () => canViewUsers });
+	const topologiesQuery = useTopologiesQuery();
+
+	// Mutations
+	const deleteTopologyMutation = useDeleteTopologyMutation();
+	const rebuildTopologyMutation = useRebuildTopologyMutation();
+	const lockTopologyMutation = useLockTopologyMutation();
+	const unlockTopologyMutation = useUnlockTopologyMutation();
 
 	// Derived data
 	let usersData = $derived(usersQuery.data ?? []);
-	let isLoading = $derived(hostsQuery.isPending || subnetsQuery.isPending || groupsQuery.isPending);
+	let topologiesData = $derived(topologiesQuery.data ?? []);
+	let isLoading = $derived(
+		hostsQuery.isPending ||
+			subnetsQuery.isPending ||
+			groupsQuery.isPending ||
+			topologiesQuery.isPending
+	);
 
-	// Load topologies (still uses old store)
-	onMount(() => {
-		getTopologies();
+	// Selected topology (derived from ID + query data)
+	let currentTopology = $derived(
+		$selectedTopologyId ? topologiesData.find((t) => t.id === $selectedTopologyId) : null
+	);
+
+	// Initialize selected topology when data loads
+	$effect(() => {
+		if (topologiesData.length > 0 && !$selectedTopologyId) {
+			// Check for preferred network from onboarding
+			const preferredNetworkId = consumePreferredNetwork();
+			if (preferredNetworkId) {
+				const preferred = topologiesData.find((t) => t.network_id === preferredNetworkId);
+				if (preferred) {
+					selectedTopologyId.set(preferred.id);
+					return;
+				}
+			}
+			// Default to first topology
+			selectedTopologyId.set(topologiesData[0].id);
+		}
 	});
 
 	let isCreateEditOpen = $state(false);
@@ -68,11 +101,6 @@
 
 	let topologyViewer: TopologyViewer | null = $state(null);
 
-	$effect(() => {
-		void $topology;
-		void $topologies;
-	});
-
 	function handleCreateTopology() {
 		isCreateEditOpen = true;
 		editingTopology = null;
@@ -80,7 +108,7 @@
 
 	function handleEditTopology() {
 		isCreateEditOpen = true;
-		editingTopology = $topology;
+		editingTopology = currentTopology ?? null;
 	}
 
 	function onSubmit() {
@@ -95,16 +123,22 @@
 
 	// Handle topology selection
 	function handleTopologyChange(value: string) {
-		const selectedTopology = $topologies.find((t) => t.id === value);
-		if (selectedTopology) {
-			topology.set(selectedTopology);
-		}
+		selectedTopologyId.set(value);
 	}
 
 	async function handleDelete() {
-		if (confirm(`Are you sure you want to delete topology ${$topology.name}?`)) {
-			await deleteTopology($topology.id);
-			topology.set($topologies[0]);
+		if (!currentTopology) return;
+		// Capture values before async operation (currentTopology becomes null after query refetch)
+		const toDeleteId = currentTopology.id;
+		const toDeleteName = currentTopology.name;
+		if (confirm(`Are you sure you want to delete topology ${toDeleteName}?`)) {
+			await deleteTopologyMutation.mutateAsync(toDeleteId);
+			// After mutation, topologiesData is already updated without the deleted topology
+			if (topologiesData.length > 0) {
+				selectedTopologyId.set(topologiesData[0].id);
+			} else {
+				selectedTopologyId.set(null);
+			}
 		}
 	}
 
@@ -116,50 +150,52 @@
 	}
 
 	async function handleRefresh() {
-		if (!$topology) return;
+		if (!currentTopology) return;
 
-		if (hasConflicts($topology)) {
+		if (hasConflicts(currentTopology)) {
 			// Open modal to review conflicts
 			isRefreshConflictsOpen = true;
 		} else {
 			// Safe to refresh directly
-			await rebuildTopology($topology);
+			await rebuildTopologyMutation.mutateAsync(currentTopology);
 			topologyViewer?.triggerFitView();
 		}
 	}
 
 	async function handleReset() {
-		if (!$topology) return;
-		let resetTopology = { ...$topology };
+		if (!currentTopology) return;
+		let resetTopology = { ...currentTopology };
 		resetTopology.nodes = [];
 		resetTopology.edges = [];
-		await rebuildTopology(resetTopology);
+		await rebuildTopologyMutation.mutateAsync(resetTopology);
 		topologyViewer?.triggerFitView();
 	}
 
 	async function handleConfirmRefresh() {
-		await rebuildTopology($topology);
+		if (!currentTopology) return;
+		await rebuildTopologyMutation.mutateAsync(currentTopology);
 		topologyViewer?.triggerFitView();
 		isRefreshConflictsOpen = false;
 	}
 
 	async function handleLockFromConflicts() {
-		await lockTopology($topology);
+		if (!currentTopology) return;
+		await lockTopologyMutation.mutateAsync(currentTopology);
 		isRefreshConflictsOpen = false;
 	}
 
 	async function handleToggleLock() {
-		if (!$topology) return;
-		if ($topology.is_locked) {
-			await unlockTopology($topology);
+		if (!currentTopology) return;
+		if (currentTopology.is_locked) {
+			await unlockTopologyMutation.mutateAsync(currentTopology);
 		} else {
-			await lockTopology($topology);
+			await lockTopologyMutation.mutateAsync(currentTopology);
 		}
 	}
 
 	let stateConfig = $derived(
-		$topology
-			? getTopologyState($topology, $autoRebuild, {
+		currentTopology
+			? getTopologyState(currentTopology, $autoRebuild, {
 					onRefresh: handleRefresh,
 					onReset: handleReset
 				})
@@ -167,10 +203,10 @@
 	);
 
 	let lockedByUser = $derived(
-		$topology?.locked_by ? usersData.find((u) => u.id === $topology.locked_by) : null
+		currentTopology?.locked_by ? usersData.find((u) => u.id === currentTopology.locked_by) : null
 	);
 	let lockedByDisplay = $derived(
-		lockedByUser?.email ?? ($topology?.locked_by ? 'another user' : null)
+		lockedByUser?.email ?? (currentTopology?.locked_by ? 'another user' : null)
 	);
 </script>
 
@@ -178,12 +214,14 @@
 	<div class="space-y-6">
 		<!-- Header -->
 		<div class="card card-static flex items-center justify-evenly gap-4 px-4 py-2">
-			{#if $topology}
+			{#if currentTopology}
 				<div class="flex items-center gap-4 py-2">
 					<ExportButton />
-					<button class="btn-secondary" onclick={() => (isShareModalOpen = true)}>
-						<Share2 class="my-1 h-5 w-5" />
-					</button>
+					{#if !isReadOnly}
+						<button class="btn-secondary" onclick={() => (isShareModalOpen = true)}>
+							<Share2 class="my-1 h-5 w-5" />
+						</button>
+					{/if}
 					<a
 						href="https://tally.so/r/lbqLAv"
 						target="_blank"
@@ -195,98 +233,102 @@
 					</a>
 				</div>
 
-				<div class="card-divider-v self-stretch"></div>
+				{#if !isReadOnly}
+					<div class="card-divider-v self-stretch"></div>
 
-				<div class="flex items-center py-2">
-					<div class="mr-2 flex flex-col text-center">
-						<div class="flex justify-around gap-6">
-							<button
-								onclick={handleToggleLock}
-								class={`text-xs ${$topology.is_locked ? 'btn-icon-info' : 'btn-icon'}`}
-							>
-								<Lock class="mr-2 h-4 w-4" />
-								{$topology.is_locked ? 'Unlock' : 'Lock'}
-							</button>
-
-							{#if !$topology.is_locked}
+					<div class="flex items-center py-2">
+						<div class="mr-2 flex flex-col text-center">
+							<div class="flex justify-around gap-6">
 								<button
-									onclick={handleAutoRebuildToggle}
-									type="button"
-									class={`text-xs ${$autoRebuild && !$topology.is_locked ? 'btn-icon-success' : 'btn-icon'}`}
-									disabled={$topology.is_locked}
+									onclick={handleToggleLock}
+									class={`text-xs ${currentTopology.is_locked ? 'btn-icon-info' : 'btn-icon'}`}
 								>
-									{#if $autoRebuild}
-										<Radio class="mr-2 h-4 w-4" /> Auto
-									{:else}
-										<RefreshCcw class="mr-2 h-4 w-4" /> Manual
-									{/if}
+									<Lock class="mr-2 h-4 w-4" />
+									{currentTopology.is_locked ? 'Unlock' : 'Lock'}
 								</button>
+
+								{#if !currentTopology.is_locked}
+									<button
+										onclick={handleAutoRebuildToggle}
+										type="button"
+										class={`text-xs ${$autoRebuild && !currentTopology.is_locked ? 'btn-icon-success' : 'btn-icon'}`}
+										disabled={currentTopology.is_locked}
+									>
+										{#if $autoRebuild}
+											<Radio class="mr-2 h-4 w-4" /> Auto
+										{:else}
+											<RefreshCcw class="mr-2 h-4 w-4" /> Manual
+										{/if}
+									</button>
+								{/if}
+							</div>
+							{#if currentTopology.is_locked && currentTopology.locked_at}
+								<span class="text-tertiary whitespace-nowrap text-[10px]"
+									>Locked: {formatTimestamp(currentTopology.locked_at)} by {lockedByDisplay}</span
+								>
+							{:else}
+								<span class="text-tertiary whitespace-nowrap text-[10px]"
+									>Last Rebuild: {formatTimestamp(currentTopology.last_refreshed)}</span
+								>
 							{/if}
 						</div>
-						{#if $topology.is_locked && $topology.locked_at}
-							<span class="text-tertiary whitespace-nowrap text-[10px]"
-								>Locked: {formatTimestamp($topology.locked_at)} by {lockedByDisplay}</span
-							>
-						{:else}
-							<span class="text-tertiary whitespace-nowrap text-[10px]"
-								>Last Rebuild: {formatTimestamp($topology.last_refreshed)}</span
-							>
+						<!-- State Badge / Action Button -->
+						{#if stateConfig && !currentTopology.is_locked && !$autoRebuild}
+							<div class="flex flex-col items-center gap-2">
+								<div class="flex items-center">
+									<StateBadge
+										disabled={stateConfig?.disabled || false}
+										Icon={stateConfig.icon}
+										label={stateConfig.buttonText}
+										cls={stateConfig.class}
+										onClick={stateConfig.action}
+									/>
+								</div>
+							</div>
 						{/if}
 					</div>
-					<!-- State Badge / Action Button -->
-					{#if stateConfig && !$topology.is_locked && !$autoRebuild}
-						<div class="flex flex-col items-center gap-2">
-							<div class="flex items-center">
-								<StateBadge
-									disabled={stateConfig?.disabled || false}
-									Icon={stateConfig.icon}
-									label={stateConfig.buttonText}
-									cls={stateConfig.class}
-									onClick={stateConfig.action}
-								/>
-							</div>
-						</div>
-					{/if}
-				</div>
 
-				<div class="card-divider-v self-stretch"></div>
+					<div class="card-divider-v self-stretch"></div>
+				{/if}
 
-				{#if $topologies}
+				{#if topologiesData.length > 0}
 					<RichSelect
 						label=""
-						selectedValue={$topology.id}
+						selectedValue={currentTopology.id}
 						displayComponent={TopologyDisplay}
 						onSelect={handleTopologyChange}
-						options={$topologies}
+						options={topologiesData}
 					/>
 				{/if}
 			{/if}
 
-			{#if $topology}
-				<div class="card-divider-v self-stretch"></div>
+			{#if !isReadOnly}
+				{#if currentTopology}
+					<div class="card-divider-v self-stretch"></div>
+				{/if}
+
+				<div class="flex items-center gap-4 py-2">
+					{#if currentTopology}
+						<button class="btn-primary" onclick={handleEditTopology}>
+							<Edit class="my-1 h-4 w-4" />
+						</button>
+					{/if}
+
+					<button class="btn-primary" onclick={handleCreateTopology}>
+						<Plus class="my-1 h-4 w-4" />
+					</button>
+
+					{#if currentTopology}
+						<button class="btn-danger" onclick={handleDelete}>
+							<Trash2 class="my-1 h-5 w-5" />
+						</button>
+					{/if}
+				</div>
 			{/if}
-
-			<div class="flex items-center gap-4 py-2">
-				{#if $topology}
-					<button class="btn-primary" onclick={handleEditTopology}>
-						<Edit class="my-1 h-4 w-4" />
-					</button>
-				{/if}
-
-				<button class="btn-primary" onclick={handleCreateTopology}>
-					<Plus class="my-1 h-4 w-4" />
-				</button>
-
-				{#if $topology}
-					<button class="btn-danger" onclick={handleDelete}>
-						<Trash2 class="my-1 h-5 w-5" />
-					</button>
-				{/if}
-			</div>
 		</div>
 
 		<!-- Contextual Info Banner -->
-		{#if $topology && stateConfig}
+		{#if currentTopology && stateConfig}
 			{#if stateConfig.type === 'locked'}
 				<InlineInfo
 					dismissableKey="topology-locked-info"
@@ -311,7 +353,7 @@
 
 		{#if isLoading}
 			<Loading />
-		{:else if $topology}
+		{:else if currentTopology}
 			<div class="relative">
 				<TopologyOptionsPanel />
 				<TopologyViewer bind:this={topologyViewer} />
@@ -326,18 +368,18 @@
 
 <TopologyModal bind:isOpen={isCreateEditOpen} {onSubmit} {onClose} topo={editingTopology} />
 
-{#if $topology}
+{#if currentTopology}
 	<RefreshConflictsModal
 		bind:isOpen={isRefreshConflictsOpen}
-		topology={$topology}
+		topology={currentTopology}
 		onConfirm={handleConfirmRefresh}
 		onLock={handleLockFromConflicts}
 		onCancel={() => (isRefreshConflictsOpen = false)}
 	/>
 	<ShareModal
 		isOpen={isShareModalOpen}
-		topologyId={$topology.id}
-		networkId={$topology.network_id}
+		topologyId={currentTopology.id}
+		networkId={currentTopology.network_id}
 		onClose={() => (isShareModalOpen = false)}
 	/>
 {/if}

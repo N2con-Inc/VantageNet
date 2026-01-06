@@ -10,6 +10,9 @@
 	import { useTopologiesQuery } from '$lib/features/topology/queries';
 	import { useSharesQuery, useDeleteShareMutation, useBulkDeleteSharesMutation } from '../queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const sharesQuery = useSharesQuery();
@@ -128,7 +131,7 @@
 			items={sharesData}
 			fields={shareFields}
 			storageKey="scanopy-shares-table-state"
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			getItemId={(item) => item.id}
 		>
 			{#snippet children(
@@ -142,8 +145,8 @@
 					{viewMode}
 					selected={isSelected}
 					{onSelectionChange}
-					onEdit={handleEdit}
-					onDelete={handleDelete}
+					onEdit={isReadOnly ? undefined : handleEdit}
+					onDelete={isReadOnly ? undefined : handleDelete}
 				/>
 			{/snippet}
 		</DataControls>

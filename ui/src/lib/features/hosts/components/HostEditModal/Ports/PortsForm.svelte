@@ -10,6 +10,7 @@
 	import PortConfigPanel from './PortConfigPanel.svelte';
 	import EntityConfigEmpty from '$lib/shared/components/forms/EntityConfigEmpty.svelte';
 	import ConfirmationDialog from '$lib/shared/components/feedback/ConfirmationDialog.svelte';
+	import EntityMetadataSection from '$lib/shared/components/forms/EntityMetadataSection.svelte';
 
 	interface Props {
 		formData: HostFormData;
@@ -187,6 +188,8 @@
 		{/if}
 	</svelte:fragment>
 </ListConfigEditor>
+
+<EntityMetadataSection entities={formData.ports} showSummary={false} />
 
 <ConfirmationDialog
 	isOpen={showDeleteConfirmation}

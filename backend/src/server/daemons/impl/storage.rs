@@ -1,4 +1,5 @@
 use chrono::{DateTime, Utc};
+use semver::Version;
 use sqlx::Row;
 use sqlx::postgres::PgRow;
 use uuid::Uuid;
@@ -80,6 +81,8 @@ impl StorableEntity for Daemon {
                     url,
                     name,
                     tags,
+                    version,
+                    user_id,
                 },
         } = self.clone();
 
@@ -96,6 +99,8 @@ impl StorableEntity for Daemon {
                 "name",
                 "mode",
                 "tags",
+                "version",
+                "user_id",
             ],
             vec![
                 SqlValue::Uuid(id),
@@ -109,6 +114,8 @@ impl StorableEntity for Daemon {
                 SqlValue::String(name),
                 SqlValue::DaemonMode(mode),
                 SqlValue::UuidArray(tags),
+                SqlValue::OptionalString(version.map(|v| v.to_string())),
+                SqlValue::Uuid(user_id),
             ],
         ))
     }
@@ -120,6 +127,11 @@ impl StorableEntity for Daemon {
         let capabilities: DaemonCapabilities =
             serde_json::from_value(row.get::<serde_json::Value, _>("capabilities"))
                 .map_err(|e| anyhow::anyhow!("Failed to deserialize capabilities: {}", e))?;
+
+        // Parse version from string, ignoring parse errors (version may be invalid)
+        let version: Option<Version> = row
+            .get::<Option<String>, _>("version")
+            .and_then(|s| Version::parse(&s).ok());
 
         Ok(Daemon {
             id: row.get("id"),
@@ -134,6 +146,8 @@ impl StorableEntity for Daemon {
                 mode,
                 capabilities,
                 tags: row.get("tags"),
+                version,
+                user_id: row.get("user_id"),
             },
         })
     }

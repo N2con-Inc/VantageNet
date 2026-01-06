@@ -2,7 +2,7 @@
 	import { entities } from '$lib/shared/stores/metadata';
 	import { queryClient, queryKeys } from '$lib/api/query-client';
 	import type { Network } from '$lib/features/networks/types';
-	import { autoRebuild } from '$lib/features/topology/store';
+	import { autoRebuild } from '$lib/features/topology/queries';
 
 	export const TopologyDisplay: EntityDisplayComponent<Topology, object> = {
 		getId: (topology: Topology) => topology.id,

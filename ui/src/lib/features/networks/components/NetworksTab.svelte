@@ -11,6 +11,9 @@
 	import { useTagsQuery } from '$lib/features/tags/queries';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
 	import { permissions } from '$lib/shared/stores/metadata';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 	import {
 		useNetworksQuery,
 		useCreateNetworkMutation,
@@ -50,11 +53,15 @@
 	let editingNetwork = $state<Network | null>(null);
 
 	let allowBulkDelete = $derived(
-		currentUser ? permissions.getMetadata(currentUser.permissions).manage_org_entities : false
+		!isReadOnly && currentUser
+			? permissions.getMetadata(currentUser.permissions).manage_org_entities
+			: false
 	);
 
 	let canManageNetworks = $derived(
-		(currentUser && permissions.getMetadata(currentUser.permissions).manage_org_entities) || false
+		!isReadOnly &&
+			currentUser &&
+			permissions.getMetadata(currentUser.permissions).manage_org_entities
 	);
 
 	function handleDeleteNetwork(network: Network) {

@@ -26,23 +26,30 @@ fn collect_all_routes() -> OpenApi {
     let (_, openapi) = routes.split_for_parts();
 
     // Merge billing, shares, and auth routes (they're in separate exempt sections)
+    // Billing and shares are versioned, auth is unversioned (session management)
     let (_, billing_openapi) = utoipa_axum::router::OpenApiRouter::<Arc<AppState>>::new()
         .nest(
-            "/api/billing",
+            "/api/v1/billing",
             scanopy::server::billing::handlers::create_router(),
         )
         .split_for_parts();
     let (_, shares_openapi) = utoipa_axum::router::OpenApiRouter::<Arc<AppState>>::new()
         .nest(
-            "/api/shares",
+            "/api/v1/shares",
             scanopy::server::shares::handlers::create_router(),
         )
         .split_for_parts();
     let (_, auth_openapi) = utoipa_axum::router::OpenApiRouter::<Arc<AppState>>::new()
         .nest(
-            "/api/auth",
+            "/api/auth", // Unversioned - session auth
             scanopy::server::auth::handlers::create_router(),
         )
+        .split_for_parts();
+
+    // Version endpoint (unversioned)
+    use scanopy::server::shared::handlers::factory::{__path_get_version, get_version};
+    let (_, version_openapi) = utoipa_axum::router::OpenApiRouter::<Arc<AppState>>::new()
+        .routes(utoipa_axum::routes!(get_version))
         .split_for_parts();
 
     // Cacheable routes (config, metadata, github-stars)
@@ -63,6 +70,7 @@ fn collect_all_routes() -> OpenApi {
     merged.merge(billing_openapi);
     merged.merge(shares_openapi);
     merged.merge(auth_openapi);
+    merged.merge(version_openapi);
     merged.merge(cacheable_openapi);
 
     merged

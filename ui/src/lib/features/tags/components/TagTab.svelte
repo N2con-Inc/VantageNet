@@ -17,6 +17,9 @@
 	import { Plus } from 'lucide-svelte';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
 	import { permissions } from '$lib/shared/stores/metadata';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	let showTagEditor = $state(false);
 	let editingTag: Tag | null = $state(null);
@@ -36,11 +39,15 @@
 	let isLoading = $derived(tagsQuery.isLoading);
 
 	let canManageNetworks = $derived(
-		(currentUser && permissions.getMetadata(currentUser.permissions).manage_org_entities) || false
+		!isReadOnly &&
+			currentUser &&
+			permissions.getMetadata(currentUser.permissions).manage_org_entities
 	);
 
 	let allowBulkDelete = $derived(
-		currentUser ? permissions.getMetadata(currentUser.permissions).manage_org_entities : false
+		!isReadOnly && currentUser
+			? permissions.getMetadata(currentUser.permissions).manage_org_entities
+			: false
 	);
 
 	function handleCreateTag() {

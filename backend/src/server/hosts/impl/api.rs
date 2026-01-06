@@ -7,13 +7,19 @@ use uuid::Uuid;
 use validator::Validate;
 
 use crate::server::{
+    bindings::r#impl::base::{Binding, BindingBase, BindingType},
     hosts::r#impl::{
         base::{Host, HostBase},
         virtualization::HostVirtualization,
     },
     interfaces::r#impl::base::{Interface, InterfaceBase},
     ports::r#impl::base::{Port, PortBase, PortConfig, PortType, TransportProtocol},
-    services::r#impl::base::Service,
+    services::r#impl::{
+        base::{Service, ServiceBase},
+        definitions::ServiceDefinition,
+        virtualization::ServiceVirtualization,
+    },
+    shared::position::PositionedInput,
     shared::types::entities::EntitySource,
 };
 
@@ -49,15 +55,244 @@ pub struct DiscoveryHostRequest {
 }
 
 // =============================================================================
-// EXTERNAL API - CREATE REQUEST TYPES
+// EXTERNAL API - CONSOLIDATED INPUT TYPES
 // =============================================================================
 
-/// Request type for creating a host with its associated interfaces and ports.
+/// Input for creating or updating an interface.
+/// Used in both CreateHostRequest and UpdateHostRequest.
+/// Client must provide a UUID for the interface.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct InterfaceInput {
+    /// Client-provided UUID for this interface
+    pub id: Uuid,
+    pub subnet_id: Uuid,
+    #[schema(value_type = String)]
+    pub ip_address: IpAddr,
+    #[schema(value_type = Option<String>)]
+    pub mac_address: Option<MacAddress>,
+    pub name: Option<String>,
+    /// Position in the host's interface list (for ordering).
+    /// If omitted on create: appends to end of list.
+    /// If omitted on update: existing interfaces keep their positions; new interfaces append.
+    /// Must be all specified or all omitted across all interfaces in the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<i32>,
+}
+
+impl InterfaceInput {
+    /// Convert to Interface entity with the given host_id and network_id.
+    /// Position must be resolved before calling this (via `resolve_and_validate_input_positions`).
+    pub fn into_interface(self, host_id: Uuid, network_id: Uuid) -> Interface {
+        let now = chrono::Utc::now();
+        Interface {
+            id: self.id,
+            created_at: now,
+            updated_at: now,
+            base: InterfaceBase {
+                network_id,
+                host_id,
+                subnet_id: self.subnet_id,
+                ip_address: self.ip_address,
+                mac_address: self.mac_address,
+                name: self.name,
+                position: self.position.unwrap_or(0),
+            },
+        }
+    }
+}
+
+impl PositionedInput for InterfaceInput {
+    fn position(&self) -> Option<i32> {
+        self.position
+    }
+
+    fn set_position(&mut self, position: i32) {
+        self.position = Some(position);
+    }
+
+    fn id(&self) -> Uuid {
+        self.id
+    }
+}
+
+/// Input for creating or updating a port.
+/// Used in both CreateHostRequest and UpdateHostRequest.
+/// Client must provide a UUID for the port.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PortInput {
+    /// Client-provided UUID for this port
+    pub id: Uuid,
+    /// Port number (1-65535)
+    pub number: u16,
+    /// Transport protocol (Tcp or Udp)
+    pub protocol: TransportProtocol,
+}
+
+impl PortInput {
+    /// Convert to Port entity with the given host_id and network_id.
+    pub fn into_port(self, host_id: Uuid, network_id: Uuid) -> Port {
+        let now = chrono::Utc::now();
+        Port {
+            id: self.id,
+            created_at: now,
+            updated_at: now,
+            base: PortBase {
+                host_id,
+                network_id,
+                port_type: PortType::Custom(PortConfig {
+                    number: self.number,
+                    protocol: self.protocol,
+                }),
+            },
+        }
+    }
+}
+
+/// Input for creating or updating a service.
+/// Used in both CreateHostRequest and UpdateHostRequest.
+/// Client must provide a UUID for the service.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ServiceInput {
+    /// Client-provided UUID for this service
+    pub id: Uuid,
+    /// Service definition ID (e.g., "Nginx", "PostgreSQL")
+    #[schema(value_type = String)]
+    pub service_definition: Box<dyn ServiceDefinition>,
+    /// Display name for this service
+    pub name: String,
+    /// Bindings that associate this service with ports/interfaces
+    #[serde(default)]
+    pub bindings: Vec<BindingInput>,
+    /// Container/VM virtualization info if applicable
+    pub virtualization: Option<ServiceVirtualization>,
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<Uuid>,
+    /// Position in the host's service list (for ordering).
+    /// If omitted on create: appends to end of list.
+    /// If omitted on update: existing services keep their positions; new services append.
+    /// Must be all specified or all omitted across all services in the request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<i32>,
+}
+
+impl ServiceInput {
+    /// Convert to Service entity with the given host_id, network_id, and source.
+    /// Position must be resolved before calling this (via `resolve_and_validate_input_positions`).
+    pub fn into_service(self, host_id: Uuid, network_id: Uuid, source: EntitySource) -> Service {
+        let now = chrono::Utc::now();
+        let service_id = self.id;
+
+        // Convert binding inputs to full bindings
+        let bindings: Vec<Binding> = self
+            .bindings
+            .into_iter()
+            .map(|b| b.into_binding(service_id, network_id))
+            .collect();
+
+        Service {
+            id: self.id,
+            created_at: now,
+            updated_at: now,
+            base: ServiceBase {
+                host_id,
+                network_id,
+                service_definition: self.service_definition,
+                name: self.name,
+                bindings,
+                virtualization: self.virtualization,
+                source,
+                tags: self.tags,
+                position: self.position.unwrap_or(0),
+            },
+        }
+    }
+}
+
+impl PositionedInput for ServiceInput {
+    fn position(&self) -> Option<i32> {
+        self.position
+    }
+
+    fn set_position(&mut self, position: i32) {
+        self.position = Some(position);
+    }
+
+    fn id(&self) -> Uuid {
+        self.id
+    }
+}
+
+/// Input for creating or updating a binding within a service.
+/// Used in both CreateHostRequest and UpdateHostRequest.
+/// Client must provide a UUID for the binding.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type")]
+pub enum BindingInput {
+    /// Bind to an interface (service is present at this interface without a specific port)
+    #[schema(title = "Interface")]
+    Interface {
+        /// Client-provided UUID for this binding
+        id: Uuid,
+        interface_id: Uuid,
+    },
+    /// Bind to a port (optionally on a specific interface)
+    #[schema(title = "Port")]
+    Port {
+        /// Client-provided UUID for this binding
+        id: Uuid,
+        port_id: Uuid,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        /// null = bind to all interfaces
+        interface_id: Option<Uuid>,
+    },
+}
+
+impl BindingInput {
+    /// Get the client-provided ID for this binding
+    pub fn id(&self) -> Uuid {
+        match self {
+            BindingInput::Interface { id, .. } => *id,
+            BindingInput::Port { id, .. } => *id,
+        }
+    }
+
+    /// Convert to a full Binding with the given service_id and network_id.
+    pub fn into_binding(self, service_id: Uuid, network_id: Uuid) -> Binding {
+        let (id, binding_type) = match self {
+            BindingInput::Interface { id, interface_id } => {
+                (id, BindingType::Interface { interface_id })
+            }
+            BindingInput::Port {
+                id,
+                port_id,
+                interface_id,
+            } => (
+                id,
+                BindingType::Port {
+                    port_id,
+                    interface_id,
+                },
+            ),
+        };
+
+        Binding {
+            id,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            base: BindingBase::new(service_id, network_id, binding_type),
+        }
+    }
+}
+
+// =============================================================================
+// EXTERNAL API - CREATE REQUEST
+// =============================================================================
+
+/// Request type for creating a host with its associated interfaces, ports, and services.
 /// Server assigns `host_id`, `network_id`, and `source` to all children.
-/// Source is automatically set based on how the entity was created (API vs UI).
-///
-/// Note: Services are created separately via `POST /api/services` after the host exists,
-/// as service bindings require the real IDs of the interfaces/ports to reference.
+/// Client must provide UUIDs for all entities, enabling services to reference
+/// interfaces/ports by ID in the same request.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
 #[schema(example = crate::server::shared::types::examples::create_host_request)]
 pub struct CreateHostRequest {
@@ -68,7 +303,6 @@ pub struct CreateHostRequest {
     pub hostname: Option<String>,
     #[validate(length(max = 500, message = "Description must be 500 characters or less"))]
     pub description: Option<String>,
-    // Note: source is auto-set by server (Manual for UI, Api for API calls)
     pub virtualization: Option<HostVirtualization>,
     #[serde(default)]
     pub hidden: bool,
@@ -76,84 +310,24 @@ pub struct CreateHostRequest {
     #[schema(required)]
     pub tags: Vec<Uuid>,
 
-    // Children to create with host (server assigns host_id/network_id)
+    /// Interfaces to create with this host (client provides UUIDs)
     #[serde(default)]
-    pub interfaces: Vec<CreateInterfaceInput>,
+    pub interfaces: Vec<InterfaceInput>,
+    /// Ports to create with this host (client provides UUIDs)
     #[serde(default)]
-    pub ports: Vec<CreatePortInput>,
-    // Note: Services are added separately after host creation via POST /api/services
-}
-
-/// Input for creating an interface with a host.
-/// `host_id` and `network_id` are assigned by the server.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreateInterfaceInput {
-    pub subnet_id: Uuid,
-    #[schema(value_type = String)]
-    pub ip_address: IpAddr,
-    #[schema(value_type = Option<String>)]
-    pub mac_address: Option<MacAddress>,
-    pub name: Option<String>,
-    /// Position of this interface in the host's interface list (for ordering)
+    pub ports: Vec<PortInput>,
+    /// Services to create with this host (can reference interfaces/ports by their UUIDs)
     #[serde(default)]
-    pub position: i32,
-}
-
-impl CreateInterfaceInput {
-    /// Convert to InterfaceBase with the given host_id and network_id.
-    /// Uses exhaustive destructuring to ensure compile error if InterfaceBase changes.
-    pub fn into_base(self, host_id: Uuid, network_id: Uuid) -> InterfaceBase {
-        let CreateInterfaceInput {
-            subnet_id,
-            ip_address,
-            mac_address,
-            name,
-            position,
-        } = self;
-
-        // Exhaustive construction ensures we handle all InterfaceBase fields
-        InterfaceBase {
-            network_id,
-            host_id,
-            subnet_id,
-            ip_address,
-            mac_address,
-            name,
-            position,
-        }
-    }
-}
-
-/// Input for creating a port with a host.
-/// `host_id` and `network_id` are assigned by the server.
-/// The port is specified by number and protocol (e.g., 80/tcp, 443/tcp).
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct CreatePortInput {
-    /// Port number (1-65535)
-    pub number: u16,
-    /// Transport protocol (Tcp or Udp)
-    pub protocol: TransportProtocol,
-}
-
-impl CreatePortInput {
-    /// Convert to PortBase with the given host_id and network_id.
-    pub fn into_base(self, host_id: Uuid, network_id: Uuid) -> PortBase {
-        let CreatePortInput { number, protocol } = self;
-
-        PortBase {
-            host_id,
-            network_id,
-            port_type: PortType::Custom(PortConfig { number, protocol }),
-        }
-    }
+    pub services: Vec<ServiceInput>,
 }
 
 // =============================================================================
 // UPDATE REQUEST TYPE
 // =============================================================================
 
-/// Request type for updating a host.
-/// Optionally includes interfaces and ports to sync (create/update/delete).
+/// Request type for updating a host with its children.
+/// Uses the same input types as CreateHostRequest.
+/// Server will sync children (create new, update existing, delete removed).
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Validate)]
 pub struct UpdateHostRequest {
     pub id: Uuid,
@@ -167,128 +341,24 @@ pub struct UpdateHostRequest {
     #[serde(default)]
     #[schema(required)]
     pub tags: Vec<Uuid>,
-    // Note: source is not updatable via API
-    // Note: network_id is not updatable (would require moving children)
     /// Optional: expected updated_at timestamp for optimistic locking.
-    /// If provided, the update will fail with a conflict error if the host
-    /// has been modified since this timestamp (e.g., by discovery running
-    /// while the user was editing).
     #[serde(default)]
     pub expected_updated_at: Option<DateTime<Utc>>,
 
-    /// Optional: interfaces to sync with this host.
-    /// If provided, the server will:
-    /// - Create interfaces without an `id` (or with nil UUID)
-    /// - Keep/update interfaces with matching `id`
-    /// - Delete existing interfaces not in this list
-    ///
-    /// If not provided (None), interfaces are left unchanged.
+    /// Interfaces to sync with this host.
+    /// Server will create/update/delete to match this list.
     #[serde(default)]
-    pub interfaces: Option<Vec<UpdateInterfaceInput>>,
+    pub interfaces: Vec<InterfaceInput>,
 
-    /// Optional: ports to sync with this host.
-    /// If provided, the server will:
-    /// - Create ports without an `id` (or with nil UUID)
-    /// - Keep/update ports with matching `id`
-    /// - Delete existing ports not in this list
-    ///
-    /// If not provided (None), ports are left unchanged.
+    /// Ports to sync with this host.
+    /// Server will create/update/delete to match this list.
     #[serde(default)]
-    pub ports: Option<Vec<UpdatePortInput>>,
-}
+    pub ports: Vec<PortInput>,
 
-/// Input for syncing an interface during host update.
-/// If `id` is None or nil UUID, a new interface is created.
-/// If `id` matches an existing interface, it is updated.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UpdateInterfaceInput {
-    /// ID of existing interface to update, or None/nil for new interface
-    pub id: Option<Uuid>,
-    pub subnet_id: Uuid,
-    #[schema(value_type = String)]
-    pub ip_address: IpAddr,
-    #[schema(value_type = Option<String>)]
-    pub mac_address: Option<MacAddress>,
-    pub name: Option<String>,
-    /// Position of this interface in the host's interface list (for ordering)
+    /// Services to sync with this host.
+    /// Server will create/update/delete to match this list.
     #[serde(default)]
-    pub position: i32,
-}
-
-impl UpdateInterfaceInput {
-    /// Check if this represents a new interface (no ID or nil UUID)
-    pub fn is_new(&self) -> bool {
-        self.id.is_none() || self.id == Some(Uuid::nil())
-    }
-
-    /// Convert to Interface entity with the given host_id and network_id.
-    pub fn into_interface(self, host_id: Uuid, network_id: Uuid) -> Interface {
-        let id = if self.is_new() {
-            Uuid::new_v4()
-        } else {
-            self.id.unwrap()
-        };
-
-        let now = chrono::Utc::now();
-        Interface {
-            id,
-            created_at: now,
-            updated_at: now,
-            base: InterfaceBase {
-                network_id,
-                host_id,
-                subnet_id: self.subnet_id,
-                ip_address: self.ip_address,
-                mac_address: self.mac_address,
-                name: self.name,
-                position: self.position,
-            },
-        }
-    }
-}
-
-/// Input for syncing a port during host update.
-/// If `id` is None or nil UUID, a new port is created.
-/// If `id` matches an existing port, it is kept.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct UpdatePortInput {
-    /// ID of existing port to keep, or None/nil for new port
-    pub id: Option<Uuid>,
-    /// Port number (1-65535)
-    pub number: u16,
-    /// Transport protocol (Tcp or Udp)
-    pub protocol: TransportProtocol,
-}
-
-impl UpdatePortInput {
-    /// Check if this represents a new port (no ID or nil UUID)
-    pub fn is_new(&self) -> bool {
-        self.id.is_none() || self.id == Some(Uuid::nil())
-    }
-
-    /// Convert to Port entity with the given host_id and network_id.
-    pub fn into_port(self, host_id: Uuid, network_id: Uuid) -> Port {
-        let id = if self.is_new() {
-            Uuid::new_v4()
-        } else {
-            self.id.unwrap()
-        };
-
-        let now = chrono::Utc::now();
-        Port {
-            id,
-            created_at: now,
-            updated_at: now,
-            base: PortBase {
-                host_id,
-                network_id,
-                port_type: PortType::Custom(PortConfig {
-                    number: self.number,
-                    protocol: self.protocol,
-                }),
-            },
-        }
-    }
+    pub services: Vec<ServiceInput>,
 }
 
 // =============================================================================

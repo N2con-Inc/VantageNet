@@ -2,7 +2,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use uuid::Uuid;
 
-use crate::server::auth::middleware::permissions::RequireMember;
+use crate::server::auth::middleware::permissions::{Authorized, Member};
 use crate::server::config::AppState;
 use crate::server::groups::r#impl::base::Group;
 use crate::server::shared::handlers::traits::{create_handler, update_handler};
@@ -42,11 +42,11 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "Group created successfully", body = ApiResponse<Group>),
         (status = 400, description = "Invalid request", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_group(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Json(group): Json<Group>,
 ) -> ApiResult<Json<ApiResponse<Group>>> {
     // Custom validation: Check for service bindings on different networks
@@ -68,7 +68,7 @@ async fn create_group(
     }
 
     // Delegate to generic handler (handles validation, auth checks, creation)
-    create_handler::<Group>(State(state), user, Json(group)).await
+    create_handler::<Group>(State(state), auth, Json(group)).await
 }
 
 /// Update a group
@@ -83,11 +83,11 @@ async fn create_group(
         (status = 400, description = "Invalid request", body = ApiErrorResponse),
         (status = 404, description = "Group not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_group(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     path: Path<Uuid>,
     Json(group): Json<Group>,
 ) -> ApiResult<Json<ApiResponse<Group>>> {
@@ -110,5 +110,5 @@ async fn update_group(
     }
 
     // Delegate to generic handler (handles validation, auth checks, update)
-    update_handler::<Group>(State(state), user, path, Json(group)).await
+    update_handler::<Group>(State(state), auth, path, Json(group)).await
 }

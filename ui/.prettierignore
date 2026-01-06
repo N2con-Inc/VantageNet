@@ -5,5 +5,8 @@ yarn.lock
 bun.lock
 bun.lockb
 
+# Generated files
+src/lib/api/schema.d.ts
+
 # Miscellaneous
 /static/

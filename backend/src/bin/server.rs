@@ -7,7 +7,7 @@ use axum::{
 };
 use axum_client_ip::ClientIpSource;
 use clap::Parser;
-use reqwest::header;
+use reqwest::header::{self, HeaderName};
 use vantagenet::server::{
     auth::middleware::{logging::request_logging_middleware, rate_limit::rate_limit_middleware},
     billing::plans::get_purchasable_plans,
@@ -34,6 +34,7 @@ async fn main() -> anyhow::Result<()> {
     let listen_addr = format!("0.0.0.0:{}", &config.server_port);
     let web_external_path = config.web_external_path.clone();
     let client_ip_source = config.client_ip_source.clone();
+    let public_url = config.public_url.clone();
 
     // Initialize tracing
     tracing_subscriber::registry()
@@ -152,14 +153,32 @@ async fn main() -> anyhow::Result<()> {
         HeaderValue::from_static("no-store, no-cache, must-revalidate, private"),
     );
 
+    // Security headers
+    let content_type_options = SetResponseHeaderLayer::if_not_present(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+
+    let referrer_policy = SetResponseHeaderLayer::if_not_present(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("strict-origin-when-cross-origin"),
+    );
+
+    // Clickjacking protection - prevents the app from being embedded in iframes
+    // Share endpoints override this with their own frame-ancestors based on allowed_domains
+    let frame_ancestors = SetResponseHeaderLayer::if_not_present(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static("frame-ancestors 'self'"),
+    );
+
     let app_cache = Arc::new(AppCache::new());
 
-    // Create main app
-    let app = Router::new().merge(api_router).layer(
+    // Create main app with all middleware
+    let protected_app = Router::new().merge(api_router).layer(
         ServiceBuilder::new()
             .layer(client_ip_source.into_extension())
             .layer(TraceLayer::new_for_http())
-            .layer(cors)
+            .layer(cors.clone())
             .layer(session_store)
             .layer(middleware::from_fn_with_state(
                 state.clone(),
@@ -170,16 +189,43 @@ async fn main() -> anyhow::Result<()> {
                 request_logging_middleware,
             ))
             .layer(Extension(app_cache))
-            .layer(cache_headers),
+            .layer(cache_headers)
+            .layer(content_type_options)
+            .layer(referrer_policy)
+            .layer(frame_ancestors),
     );
+
+    // Add HSTS header when secure cookies are enabled (indicates HTTPS is in use)
+    let protected_app = if state.config.use_secure_session_cookies {
+        protected_app.layer(SetResponseHeaderLayer::if_not_present(
+            HeaderName::from_static("strict-transport-security"),
+            HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+        ))
+    } else {
+        protected_app
+    };
+
+    // Health check endpoint without middleware (for kamal-proxy health checks)
+    let app = Router::new()
+        .route(
+            "/api/health",
+            axum::routing::get(|| async {
+                axum::Json(serde_json::json!({
+                    "success": true,
+                    "data": format!("VantageNet Server {}", env!("CARGO_PKG_VERSION")),
+                    "error": null
+                }))
+            }),
+        )
+        .layer(cors)
+        .merge(protected_app);
     let listener = tokio::net::TcpListener::bind(&listen_addr).await?;
-    let actual_port = listener.local_addr()?.port();
 
     tracing::info!("🚀 VantageNet Server v{}", env!("CARGO_PKG_VERSION"));
     if web_external_path.is_some() {
-        tracing::info!("📊 Web UI: http://<your-ip>:{}", actual_port);
+        tracing::info!("📊 Web UI: {}", public_url);
     }
-    tracing::info!("🔧 API: http://<your-ip>:{}/api", actual_port);
+    tracing::info!("🔧 API: {}/api", public_url);
 
     // Spawn server in background
     tokio::spawn(async move {

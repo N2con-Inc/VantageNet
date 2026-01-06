@@ -15,7 +15,7 @@ export function useDaemonsQuery() {
 	return createQuery(() => ({
 		queryKey: queryKeys.daemons.all,
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/daemons');
+			const { data } = await apiClient.GET('/api/v1/daemons');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch daemons');
 			}
@@ -32,7 +32,7 @@ export function useDeleteDaemonMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/daemons/{id}', {
+			const { data } = await apiClient.DELETE('/api/v1/daemons/{id}', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -57,7 +57,7 @@ export function useBulkDeleteDaemonsMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (ids: string[]) => {
-			const { data } = await apiClient.POST('/api/daemons/bulk-delete', { body: ids });
+			const { data } = await apiClient.POST('/api/v1/daemons/bulk-delete', { body: ids });
 			if (!data?.success) {
 				throw new Error(data?.error || 'Failed to delete daemons');
 			}

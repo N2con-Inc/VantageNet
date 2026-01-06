@@ -21,7 +21,6 @@
 	import { concepts, entities, serviceDefinitions } from '$lib/shared/stores/metadata';
 	import type { Service } from '$lib/features/services/types/base';
 	import ModalHeaderIcon from '$lib/shared/components/layout/ModalHeaderIcon.svelte';
-	import { useServicesQuery } from '$lib/features/services/queries';
 	import { useNetworksQuery } from '$lib/features/networks/queries';
 	import PortsForm from './Ports/PortsForm.svelte';
 	import VirtualizationForm from './Virtualization/VirtualizationForm.svelte';
@@ -50,16 +49,12 @@
 
 	// TanStack Query hooks
 	const queryClient = useQueryClient();
-	const servicesQuery = useServicesQuery();
 	const networksQuery = useNetworksQuery();
-	let servicesData = $derived(servicesQuery.data ?? []);
 	let networksData = $derived(networksQuery.data ?? []);
 	let defaultNetworkId = $derived(networksData[0]?.id ?? '');
 
 	let loading = $state(false);
 	let deleting = $state(false);
-
-	let currentHostServices = $state<Service[]>([]);
 
 	let isEditing = $derived(host !== null);
 	let title = $derived(isEditing ? `Edit ${host?.name}` : 'Create Host');
@@ -120,7 +115,7 @@
 						host: hostPrimitive,
 						interfaces: formData.interfaces,
 						ports: formData.ports,
-						services: currentHostServices
+						services: formData.services
 					})
 				];
 
@@ -143,7 +138,7 @@
 				await onCreateAndContinue({ host: formData, services: [] });
 			} else {
 				// Create and close
-				await onCreate({ host: formData, services: currentHostServices });
+				await onCreate({ host: formData, services: formData.services });
 				handleClose();
 			}
 		} catch (error) {
@@ -154,73 +149,64 @@
 	}
 
 	// TanStack Form - onSubmit delegates to performSubmission for access to latest state
-	// Using let so we can recreate the form on modal open to clear stale field registrations
-	// Form state is managed by TanStack Form's internal store, not Svelte reactivity
-	// svelte-ignore non_reactive_update
+	// Note: We intentionally do NOT recreate the form on modal open. Reassigning `form` causes
+	// Field components to remain bound to the old form (TanStack Form is not reactive to Svelte).
+	// Instead, we use form.reset() which properly resets values, validation, and touched state.
+	// Fields unmount when modal closes ({#if isOpen} in GenericModal) and re-register on open.
 	let form = createForm(() => ({
 		defaultValues: {
 			name: formData.name,
 			hostname: formData.hostname || '',
 			description: formData.description || '',
 			interfaces: formData.interfaces || [],
-			ports: formData.ports || []
+			ports: formData.ports || [],
+			services: formData.services || []
 		},
 		onSubmit: async ({ value }) => {
 			await performSubmission(value);
 		}
 	}));
 
-	// Creates a fresh form instance - called on modal open to clear stale field registrations
-	function recreateForm() {
-		form = createForm(() => ({
-			defaultValues: {
-				name: formData.name,
-				hostname: formData.hostname || '',
-				description: formData.description || '',
-				interfaces: formData.interfaces || [],
-				ports: formData.ports || []
-			},
-			onSubmit: async ({ value }) => {
-				await performSubmission(value);
-			}
-		}));
-	}
-
 	// Initialize form data when host changes or modal opens
+	let modalInitialized = $state(false);
 	function handleOpen() {
+		modalInitialized = true;
+		lastHostId = host?.id ?? null;
 		resetForm();
-		recreateForm();
 	}
 
-	// Track host ID to detect when host changes (e.g., after createAndContinue)
+	// Track host ID to detect when host changes WHILE modal is already open
+	// (e.g., after createAndContinue creates a new host).
+	// Initial open is handled by handleOpen(), so we check modalInitialized.
 	let lastHostId = $state<string | null>(null);
 	$effect(() => {
 		const currentHostId = host?.id ?? null;
-		if (isOpen && currentHostId !== lastHostId) {
-			// Host changed while modal is open (e.g., after createAndContinue)
-			// Reset form to use the new host's data, but preserve current tab
-			if (lastHostId !== null || currentHostId !== null) {
-				const currentTab = activeTab;
-				resetForm();
-				recreateForm();
-				activeTab = currentTab; // Preserve tab position
-			}
+		// Only reset if modal was already initialized and host changed
+		if (isOpen && modalInitialized && currentHostId !== lastHostId) {
+			const currentTab = activeTab;
+			resetForm();
+			activeTab = currentTab; // Preserve tab position
 			lastHostId = currentHostId;
+		}
+		// Reset flag when modal closes
+		if (!isOpen) {
+			modalInitialized = false;
 		}
 	});
 
 	let vmManagerServices = $derived(
-		currentHostServices.filter(
+		(formData.services || []).filter(
 			(s) => serviceDefinitions.getMetadata(s.service_definition).manages_virtualization != null
 		)
 	);
 
 	function handleVirtualizationServiceChange(updatedService: Service) {
-		// Find the actual index in currentHostServices
-		const actualIndex = currentHostServices.findIndex((s) => s.id === updatedService.id);
+		// Find the actual index in formData.services
+		const actualIndex = formData.services.findIndex((s) => s.id === updatedService.id);
 		if (actualIndex >= 0) {
-			currentHostServices[actualIndex] = updatedService;
-			currentHostServices = [...currentHostServices]; // Trigger reactivity
+			const updatedServices = [...formData.services];
+			updatedServices[actualIndex] = updatedService;
+			formData.services = updatedServices;
 		}
 	}
 
@@ -291,21 +277,21 @@
 			? hydrateHostToFormData(host, queryClient)
 			: createEmptyHostFormData(defaultNetworkId);
 
+		// Sort services by position
+		if (formData.services) {
+			formData.services = formData.services.sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+		}
+
 		// Reset TanStack form
 		form.reset({
 			name: formData.name,
 			hostname: formData.hostname || '',
 			description: formData.description || '',
 			interfaces: formData.interfaces || [],
-			ports: formData.ports || []
+			ports: formData.ports || [],
+			services: formData.services || []
 		});
 
-		if (host && host.id) {
-			// Get services for this host from query data
-			currentHostServices = servicesData.filter((s) => s.host_id === host.id);
-		} else {
-			currentHostServices = [];
-		}
 		activeTab = 'details'; // Reset to first tab
 	}
 
@@ -355,27 +341,12 @@
 		}
 	}
 
-	// Check if we're on the services tab during create mode
-	let isServicesTabDuringCreate = $derived(!isEditing && activeTab === 'services');
-
 	// Dynamic labels based on create/edit mode and tab position
 	let saveLabel = $derived(
 		isEditing ? 'Update Host' : currentTabIndex === tabs.length - 1 ? 'Create Host' : 'Next'
 	);
 	let cancelLabel = $derived(isEditing ? 'Cancel' : 'Previous');
 	let showCancel = $derived(isEditing ? true : currentTabIndex !== 0);
-
-	// Handler for "Create Host & Add Services" - creates host and keeps modal open
-	async function handleCreateAndContinue() {
-		submissionMode = 'createAndContinue';
-		await submitForm(form);
-	}
-
-	// Handler for "Create Host" when on services tab - creates host and closes
-	async function handleCreateAndClose() {
-		submissionMode = 'create';
-		await submitForm(form);
-	}
 </script>
 
 <GenericModal
@@ -389,13 +360,12 @@
 	{activeTab}
 	onTabChange={(tabId) => (activeTab = tabId)}
 >
-	<!-- Header icon -->
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon
 			Icon={entities.getIconComponent('Host')}
 			color={entities.getColorString('Host')}
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<form
 		onsubmit={(e) => {
@@ -423,8 +393,8 @@
 						<InterfacesForm
 							bind:formData
 							{form}
-							currentServices={currentHostServices}
-							onServicesChange={(services) => (currentHostServices = services)}
+							currentServices={formData.services}
+							onServicesChange={(services) => (formData.services = services)}
 						/>
 					</div>
 				</div>
@@ -437,8 +407,8 @@
 						<PortsForm
 							bind:formData
 							{form}
-							currentServices={currentHostServices}
-							onServicesChange={(services) => (currentHostServices = services)}
+							currentServices={formData.services}
+							onServicesChange={(services) => (formData.services = services)}
 						/>
 					</div>
 				</div>
@@ -448,12 +418,7 @@
 			{#if activeTab === 'services'}
 				<div class="h-full">
 					<div class="relative flex-1">
-						<ServicesForm
-							bind:formData
-							currentServices={currentHostServices}
-							onServicesChange={(services) => (currentHostServices = services)}
-							{isEditing}
-						/>
+						<ServicesForm bind:formData {form} />
 					</div>
 				</div>
 			{/if}
@@ -474,69 +439,35 @@
 
 		<!-- Footer -->
 		<div class="modal-footer">
-			{#if isServicesTabDuringCreate}
-				<!-- Special footer for services tab during create mode -->
-				<div class="flex items-center justify-between">
-					<div></div>
-					<div class="flex items-center gap-3">
+			<div class="flex items-center justify-between">
+				<div>
+					{#if isEditing && onDelete}
 						<button
 							type="button"
-							disabled={loading}
+							disabled={deleting || loading}
+							onclick={handleDelete}
+							class="btn-danger"
+						>
+							{deleting ? 'Deleting...' : 'Delete'}
+						</button>
+					{/if}
+				</div>
+				<div class="flex items-center gap-3">
+					{#if showCancel}
+						<button
+							type="button"
+							disabled={loading || deleting}
 							onclick={handleFormCancel}
 							class="btn-secondary"
 						>
-							Previous
+							{cancelLabel}
 						</button>
-						<button
-							type="button"
-							disabled={loading || deleting}
-							onclick={handleCreateAndClose}
-							class="btn-secondary"
-						>
-							{loading ? 'Creating...' : 'Create Host'}
-						</button>
-						<button
-							type="button"
-							disabled={loading || deleting}
-							onclick={handleCreateAndContinue}
-							class="btn-primary"
-						>
-							{loading ? 'Creating...' : 'Create Host & Add Services'}
-						</button>
-					</div>
+					{/if}
+					<button type="submit" disabled={loading || deleting} class="btn-primary">
+						{loading ? 'Saving...' : saveLabel}
+					</button>
 				</div>
-			{:else}
-				<!-- Default footer behavior -->
-				<div class="flex items-center justify-between">
-					<div>
-						{#if isEditing && onDelete}
-							<button
-								type="button"
-								disabled={deleting || loading}
-								onclick={handleDelete}
-								class="btn-danger"
-							>
-								{deleting ? 'Deleting...' : 'Delete'}
-							</button>
-						{/if}
-					</div>
-					<div class="flex items-center gap-3">
-						{#if showCancel}
-							<button
-								type="button"
-								disabled={loading || deleting}
-								onclick={handleFormCancel}
-								class="btn-secondary"
-							>
-								{cancelLabel}
-							</button>
-						{/if}
-						<button type="submit" disabled={loading || deleting} class="btn-primary">
-							{loading ? 'Saving...' : saveLabel}
-						</button>
-					</div>
-				</div>
-			{/if}
+			</div>
 		</div>
 	</form>
 </GenericModal>

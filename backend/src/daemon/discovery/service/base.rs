@@ -195,7 +195,7 @@ pub trait RunsDiscovery: AsRef<DaemonDiscoveryService> + Send + Sync {
             update,
         );
 
-        let path = format!("/api/discovery/{}/update", session.info.session_id);
+        let path = format!("/api/v1/discovery/{}/update", session.info.session_id);
 
         // Progress updates are non-critical - log errors but don't fail discovery
         if let Err(e) = self
@@ -574,7 +574,7 @@ pub trait CreatesDiscoveredEntities:
         self.as_ref()
             .api_client
             .post_with_retry(
-                "/api/hosts/discovery",
+                "/api/v1/hosts/discovery",
                 &request,
                 "Failed to create host",
                 ENTITY_CREATION_MAX_RETRIES,
@@ -586,7 +586,7 @@ pub trait CreatesDiscoveredEntities:
         self.as_ref()
             .api_client
             .post_with_retry(
-                "/api/subnets",
+                "/api/v1/subnets",
                 subnet,
                 "Failed to create subnet",
                 ENTITY_CREATION_MAX_RETRIES,
@@ -598,7 +598,7 @@ pub trait CreatesDiscoveredEntities:
         self.as_ref()
             .api_client
             .post_with_retry(
-                "/api/services",
+                "/api/v1/services",
                 service,
                 "Failed to create service",
                 ENTITY_CREATION_MAX_RETRIES,
@@ -610,7 +610,7 @@ pub trait CreatesDiscoveredEntities:
         self.as_ref()
             .api_client
             .post_with_retry(
-                "/api/groups",
+                "/api/v1/groups",
                 group,
                 "Failed to create group",
                 ENTITY_CREATION_MAX_RETRIES,

@@ -1,146 +1,380 @@
+//! Composable permission requirements for authorization.
+//!
+//! This module provides a type-safe, composable system for checking permissions.
+//!
+//! # Architecture
+//!
+//! - `PermissionRequirement` trait: Core trait that checks if an entity meets a requirement
+//! - `Authorized<P>` extractor: Generic axum extractor that enforces a permission requirement
+//! - Permission levels: `Viewer`, `Member`, `Admin`, `Owner` - check User/ApiKey permission levels
+//! - Auth type requirements: `IsDaemon`, `IsUser`, `IsApiKey` - check authentication type
+//! - Combinators: `Or<A, B>` - compose requirements
+use std::marker::PhantomData;
+
 use crate::server::auth::middleware::auth::AuthError;
 use crate::server::auth::middleware::auth::AuthenticatedEntity;
-use crate::server::auth::middleware::auth::AuthenticatedUser;
 use crate::server::{
     config::AppState, shared::types::api::ApiError, users::r#impl::permissions::UserOrgPermissions,
 };
 use axum::{extract::FromRequestParts, http::request::Parts};
 use uuid::Uuid;
 
-/// Extractor that accepts either a Member+ user OR a daemon
-/// Returns the network IDs the authenticated entity has access to
-pub struct MemberOrDaemon {
-    pub network_ids: Vec<Uuid>,
-    pub entity: AuthenticatedEntity,
+// ============================================================================
+// Core Trait
+// ============================================================================
+
+/// A permission requirement that can be checked against an authenticated entity.
+///
+/// Implement this trait to create custom permission checks. Requirements can be
+/// composed using `Or<A, B>` and `And<A, B>` combinators.
+pub trait PermissionRequirement: Send + Sync + 'static {
+    /// Check if the entity meets this permission requirement.
+    ///
+    /// Returns `Ok(())` if the requirement is met, or an appropriate `ApiError` if not.
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError>;
+
+    /// Human-readable description of this requirement for error messages.
+    fn description() -> &'static str;
 }
 
-impl<S> FromRequestParts<S> for MemberOrDaemon
+// ============================================================================
+// Permission Level Requirements (for User/ApiKey only)
+// ============================================================================
+
+/// Requires Viewer or higher permission level.
+///
+/// Passes for: User/ApiKey with Viewer, Member, Admin, or Owner
+/// Fails for: Daemon, System, Anonymous
+pub struct Viewer;
+
+impl PermissionRequirement for Viewer {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::User { permissions, .. }
+            | AuthenticatedEntity::ApiKey { permissions, .. } => {
+                if *permissions >= UserOrgPermissions::Viewer {
+                    Ok(())
+                } else {
+                    Err(ApiError::forbidden(Self::description()))
+                }
+            }
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "Viewer permission required"
+    }
+}
+
+/// Requires Member or higher permission level.
+///
+/// Passes for: User/ApiKey with Member, Admin, or Owner
+/// Fails for: User/ApiKey with Viewer, Daemon, System, Anonymous
+pub struct Member;
+
+impl PermissionRequirement for Member {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::User { permissions, .. }
+            | AuthenticatedEntity::ApiKey { permissions, .. } => {
+                if *permissions >= UserOrgPermissions::Member {
+                    Ok(())
+                } else {
+                    Err(ApiError::forbidden(Self::description()))
+                }
+            }
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "Member permission required"
+    }
+}
+
+/// Requires Admin or higher permission level.
+///
+/// Passes for: User/ApiKey with Admin or Owner
+/// Fails for: User/ApiKey with Member or Viewer, Daemon, System, Anonymous
+pub struct Admin;
+
+impl PermissionRequirement for Admin {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::User { permissions, .. }
+            | AuthenticatedEntity::ApiKey { permissions, .. } => {
+                if *permissions >= UserOrgPermissions::Admin {
+                    Ok(())
+                } else {
+                    Err(ApiError::forbidden(Self::description()))
+                }
+            }
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "Admin permission required"
+    }
+}
+
+/// Requires Owner permission level.
+///
+/// Passes for: User/ApiKey with Owner
+/// Fails for: User/ApiKey with Admin, Member, or Viewer, Daemon, System, Anonymous
+pub struct Owner;
+
+impl PermissionRequirement for Owner {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::User { permissions, .. }
+            | AuthenticatedEntity::ApiKey { permissions, .. } => {
+                if *permissions >= UserOrgPermissions::Owner {
+                    Ok(())
+                } else {
+                    Err(ApiError::forbidden(Self::description()))
+                }
+            }
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "Owner permission required"
+    }
+}
+
+// ============================================================================
+// Auth Type Requirements
+// ============================================================================
+
+/// Requires authentication via user session.
+///
+/// Passes for: User (session-based)
+/// Fails for: ApiKey, Daemon, System, Anonymous
+pub struct IsUser;
+
+impl PermissionRequirement for IsUser {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::User { .. } => Ok(()),
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "User session required"
+    }
+}
+
+/// Requires authentication via API key.
+///
+/// Passes for: ApiKey
+/// Fails for: User, Daemon, System, Anonymous
+pub struct IsApiKey;
+
+impl PermissionRequirement for IsApiKey {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::ApiKey { .. } => Ok(()),
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "API key required"
+    }
+}
+
+/// Requires authentication via daemon.
+///
+/// Passes for: Daemon
+/// Fails for: User, ApiKey, System, Anonymous
+pub struct IsDaemon;
+
+impl PermissionRequirement for IsDaemon {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::Daemon { .. } => Ok(()),
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "Daemon authentication required"
+    }
+}
+
+/// Requires system-level authentication.
+///
+/// Passes for: System
+/// Fails for: User, ApiKey, Daemon, Anonymous
+pub struct IsSystem;
+
+impl PermissionRequirement for IsSystem {
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        match entity {
+            AuthenticatedEntity::System => Ok(()),
+            _ => Err(ApiError::forbidden(Self::description())),
+        }
+    }
+
+    fn description() -> &'static str {
+        "System authentication required"
+    }
+}
+
+// ============================================================================
+// Combinators
+// ============================================================================
+
+/// Requires either A or B to pass.
+///
+/// This allows composing requirements like `Or<Member, IsDaemon>` which passes
+/// if the entity is either a Member-level user/API key OR a daemon.
+pub struct Or<A, B>(PhantomData<(A, B)>);
+
+impl<A, B> PermissionRequirement for Or<A, B>
+where
+    A: PermissionRequirement,
+    B: PermissionRequirement,
+{
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        if A::check(entity).is_ok() || B::check(entity).is_ok() {
+            Ok(())
+        } else {
+            // Combine descriptions for a more helpful error message
+            Err(ApiError::forbidden(&format!(
+                "{} or {}",
+                A::description(),
+                B::description()
+            )))
+        }
+    }
+
+    fn description() -> &'static str {
+        "Insufficient permissions"
+    }
+}
+
+/// Requires both A and B to pass.
+///
+/// This allows composing requirements like `And<Member, HasFeature<"advanced">>`.
+pub struct And<A, B>(PhantomData<(A, B)>);
+
+impl<A, B> PermissionRequirement for And<A, B>
+where
+    A: PermissionRequirement,
+    B: PermissionRequirement,
+{
+    fn check(entity: &AuthenticatedEntity) -> Result<(), ApiError> {
+        A::check(entity)?;
+        B::check(entity)?;
+        Ok(())
+    }
+
+    fn description() -> &'static str {
+        "Insufficient permissions"
+    }
+}
+
+// ============================================================================
+// The Authorized Extractor
+// ============================================================================
+
+/// An axum extractor that enforces a permission requirement.
+///
+/// This is the primary way to protect endpoints. It extracts the authenticated
+/// entity, checks the permission requirement, and provides access to the entity.
+pub struct Authorized<P: PermissionRequirement> {
+    /// The authenticated entity that passed the permission check.
+    pub entity: AuthenticatedEntity,
+    _marker: PhantomData<P>,
+}
+
+impl<P: PermissionRequirement> Authorized<P> {
+    /// Get the network IDs this entity has access to.
+    pub fn network_ids(&self) -> Vec<Uuid> {
+        self.entity.network_ids()
+    }
+
+    /// Get the organization ID, if applicable.
+    pub fn organization_id(&self) -> Option<Uuid> {
+        self.entity.organization_id()
+    }
+
+    /// Get the user ID, if applicable.
+    pub fn user_id(&self) -> Option<Uuid> {
+        self.entity.user_id()
+    }
+
+    /// Consume and return the underlying entity.
+    pub fn into_entity(self) -> AuthenticatedEntity {
+        self.entity
+    }
+
+    /// Get the daemon ID, if this is a daemon.
+    pub fn daemon_id(&self) -> Option<Uuid> {
+        self.entity.daemon_id()
+    }
+
+    /// Get the user ID, or return an error if not available.
+    pub fn require_user_id(&self) -> Result<Uuid, ApiError> {
+        self.entity
+            .user_id()
+            .ok_or_else(|| ApiError::internal_error("User ID required"))
+    }
+
+    /// Get the organization ID, or return an error if not available.
+    pub fn require_organization_id(&self) -> Result<Uuid, ApiError> {
+        self.entity
+            .organization_id()
+            .ok_or_else(|| ApiError::internal_error("Organization ID required"))
+    }
+
+    /// Get the permissions, or return an error if not available.
+    pub fn require_permissions(&self) -> Result<UserOrgPermissions, ApiError> {
+        self.entity
+            .permissions()
+            .ok_or_else(|| ApiError::internal_error("Permissions required"))
+    }
+
+    /// Convert to a different permission level.
+    /// Use this when a handler requires a lower permission level than what was checked.
+    /// For example, Admin -> Member, since Admin >= Member.
+    pub fn into_permission<Q: PermissionRequirement>(self) -> Authorized<Q> {
+        Authorized {
+            entity: self.entity,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<S, P> FromRequestParts<S> for Authorized<P>
 where
     S: Send + Sync + AsRef<AppState>,
+    P: PermissionRequirement,
 {
     type Rejection = AuthError;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        // Get the authenticated entity (works for both users and daemons)
+        // Extract the authenticated entity
         let entity = AuthenticatedEntity::from_request_parts(parts, state).await?;
 
-        match entity {
-            AuthenticatedEntity::User { .. } => {
-                // For users, check they're at least Member level
-                let member = RequireMember::from_request_parts(parts, state).await?;
-                let user: AuthenticatedUser = member.into();
+        // Check the permission requirement
+        P::check(&entity).map_err(AuthError)?;
 
-                Ok(MemberOrDaemon {
-                    network_ids: user.network_ids.clone(),
-                    entity: user.into(),
-                })
-            }
-            AuthenticatedEntity::Daemon { network_id, .. } => {
-                // Daemons only have access to their single network
-                Ok(MemberOrDaemon {
-                    network_ids: vec![network_id],
-                    entity,
-                })
-            }
-            _ => Err(AuthError(ApiError::forbidden(
-                "Member or Daemon permission required",
-            ))),
-        }
+        Ok(Authorized {
+            entity,
+            _marker: PhantomData,
+        })
     }
 }
 
-/// Extractor that requires the user to be at least an Owner
-pub struct RequireOwner(pub AuthenticatedUser);
-
-impl From<RequireOwner> for AuthenticatedUser {
-    fn from(value: RequireOwner) -> Self {
-        value.0
-    }
-}
-
-impl<S> FromRequestParts<S> for RequireOwner
-where
-    S: Send + Sync + AsRef<AppState>,
-{
-    type Rejection = AuthError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let user = AuthenticatedUser::from_request_parts(parts, state).await?;
-
-        if user.permissions < UserOrgPermissions::Owner {
-            return Err(AuthError(ApiError::forbidden("Owner permission required")));
-        }
-
-        Ok(RequireOwner(user))
-    }
-}
-
-/// Extractor that requires the user to be at least an Admin
-pub struct RequireAdmin(pub AuthenticatedUser);
-
-impl From<RequireAdmin> for AuthenticatedUser {
-    fn from(value: RequireAdmin) -> Self {
-        value.0
-    }
-}
-
-impl From<RequireOwner> for RequireAdmin {
-    fn from(value: RequireOwner) -> Self {
-        RequireAdmin(value.0)
-    }
-}
-
-impl<S> FromRequestParts<S> for RequireAdmin
-where
-    S: Send + Sync + AsRef<AppState>,
-{
-    type Rejection = AuthError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let user = AuthenticatedUser::from_request_parts(parts, state).await?;
-
-        if user.permissions < UserOrgPermissions::Admin {
-            return Err(AuthError(ApiError::forbidden("Admin permission required")));
-        }
-
-        Ok(RequireAdmin(user))
-    }
-}
-
-/// Extractor that requires the user to be at least a Member
-pub struct RequireMember(pub AuthenticatedUser);
-
-impl From<RequireMember> for AuthenticatedUser {
-    fn from(value: RequireMember) -> Self {
-        value.0
-    }
-}
-
-impl From<RequireOwner> for RequireMember {
-    fn from(value: RequireOwner) -> Self {
-        RequireMember(value.0)
-    }
-}
-
-impl From<RequireAdmin> for RequireMember {
-    fn from(value: RequireAdmin) -> Self {
-        RequireMember(value.0)
-    }
-}
-
-impl<S> FromRequestParts<S> for RequireMember
-where
-    S: Send + Sync + AsRef<AppState>,
-{
-    type Rejection = AuthError;
-
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        let user = AuthenticatedUser::from_request_parts(parts, state).await?;
-
-        if user.permissions < UserOrgPermissions::Member {
-            return Err(AuthError(ApiError::forbidden("Member permission required")));
-        }
-
-        Ok(RequireMember(user))
+// Implement conversion to AuthenticatedEntity for easy use in services
+impl<P: PermissionRequirement> From<Authorized<P>> for AuthenticatedEntity {
+    fn from(auth: Authorized<P>) -> Self {
+        auth.entity
     }
 }

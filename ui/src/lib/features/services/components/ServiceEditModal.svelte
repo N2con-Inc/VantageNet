@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { createForm } from '@tanstack/svelte-form';
+	import { validateForm } from '$lib/shared/components/forms/form-context';
 	import GenericModal from '$lib/shared/components/layout/GenericModal.svelte';
 	import ModalHeaderIcon from '$lib/shared/components/layout/ModalHeaderIcon.svelte';
 	import { serviceDefinitions } from '$lib/shared/stores/metadata';
@@ -50,11 +52,26 @@
 
 	let title = $derived(`Edit ${service.name}`);
 
+	// TanStack Form for validation
+	let form = createForm(() => ({
+		defaultValues: {
+			services: [formData]
+		},
+		onSubmit: async () => {
+			// Actual submission handled by handleSubmit
+		}
+	}));
+
 	function handleOpen() {
 		formData = { ...service };
+		form.reset();
 	}
 
 	async function handleSubmit() {
+		// Validate form first
+		const isValid = await validateForm(form);
+		if (!isValid) return;
+
 		// Clean up the data before sending
 		const serviceData: Service = {
 			...formData,
@@ -76,31 +93,38 @@
 </script>
 
 <GenericModal {isOpen} {title} {onClose} onOpen={handleOpen} size="xl">
-	<!-- Header icon -->
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon
 			Icon={serviceDefinitions.getIconComponent(service.service_definition)}
 			color={serviceDefinitions.getColorHelper(service.service_definition).color}
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<!-- Content -->
 	<div class="flex h-full flex-col overflow-hidden">
 		<div class="flex-1 overflow-y-auto">
 			<div class="space-y-8 p-6">
-				<ServiceConfigPanel host={hostFormData} service={formData} onChange={handleServiceUpdate} />
+				<ServiceConfigPanel
+					host={hostFormData}
+					service={formData}
+					{form}
+					index={0}
+					onChange={handleServiceUpdate}
+				/>
 
 				<EntityMetadataSection entities={[service]} />
 			</div>
 		</div>
 	</div>
 
-	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-end gap-3">
-			<button type="button" onclick={onClose} class="btn-secondary"> Cancel </button>
-			<button type="button" onclick={handleSubmit} disabled={loading} class="btn-primary">
-				{loading ? 'Updating...' : 'Update Service'}
-			</button>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex items-center justify-end gap-3">
+				<button type="button" onclick={onClose} class="btn-secondary"> Cancel </button>
+				<button type="button" onclick={handleSubmit} disabled={loading} class="btn-primary">
+					{loading ? 'Updating...' : 'Update Service'}
+				</button>
+			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

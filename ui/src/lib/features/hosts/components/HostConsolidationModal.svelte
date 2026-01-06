@@ -149,13 +149,12 @@
 	onClose={handleClose}
 	preventCloseOnClickOutside={loading}
 >
-	<!-- Header icon -->
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon
 			Icon={entities.getIconComponent('Host')}
 			color={entities.getColorHelper('Host').color}
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<!-- Main content -->
 	<div class="p-6">
@@ -213,44 +212,45 @@
 		{/if}
 	</div>
 
-	<!-- Footer -->
-	<svelte:fragment slot="footer">
-		<div class="flex items-center justify-between">
-			<div>
-				<!-- Empty space for alignment -->
-			</div>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex items-center justify-between">
+				<div>
+					<!-- Empty space for alignment -->
+				</div>
 
-			<div class="flex items-center gap-3">
-				{#if showPreview}
-					<button type="button" disabled={loading} onclick={handleBack} class="btn-secondary">
-						Back
-					</button>
-				{/if}
+				<div class="flex items-center gap-3">
+					{#if showPreview}
+						<button type="button" disabled={loading} onclick={handleBack} class="btn-secondary">
+							Back
+						</button>
+					{/if}
 
-				<button type="button" disabled={loading} onclick={handleClose} class="btn-secondary">
-					Cancel
-				</button>
+					<button type="button" disabled={loading} onclick={handleClose} class="btn-secondary">
+						Cancel
+					</button>
 
-				{#if !showPreview}
-					<button
-						type="button"
-						disabled={!selectedDestinationHostId}
-						onclick={handleTargetSelection}
-						class="btn-primary"
-					>
-						Next
-					</button>
-				{:else}
-					<button
-						type="button"
-						disabled={loading || !selectedDestinationHostId}
-						onclick={handleConsolidate}
-						class="btn-danger"
-					>
-						{loading ? 'Consolidating...' : 'Consolidate Hosts'}
-					</button>
-				{/if}
+					{#if !showPreview}
+						<button
+							type="button"
+							disabled={!selectedDestinationHostId}
+							onclick={handleTargetSelection}
+							class="btn-primary"
+						>
+							Next
+						</button>
+					{:else}
+						<button
+							type="button"
+							disabled={loading || !selectedDestinationHostId}
+							onclick={handleConsolidate}
+							class="btn-danger"
+						>
+							{loading ? 'Consolidating...' : 'Consolidate Hosts'}
+						</button>
+					{/if}
+				</div>
 			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

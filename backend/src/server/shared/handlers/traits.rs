@@ -1,5 +1,5 @@
 use crate::server::{
-    auth::middleware::{auth::AuthenticatedUser, permissions::RequireMember},
+    auth::middleware::permissions::{Authorized, Member, Viewer},
     config::AppState,
     shared::{
         entities::{ChangeTriggersTopologyStaleness, Entity},
@@ -100,7 +100,7 @@ where
 
 pub async fn create_handler<T>(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(mut entity): Json<T>,
 ) -> ApiResult<Json<ApiResponse<T>>>
 where
@@ -113,27 +113,29 @@ where
     validate_entity(|| CrudHandlers::validate(&entity), T::entity_name())?;
 
     let service = T::get_service(&state);
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth.user_id();
 
     validate_create_access(
         service.get_network_id(&entity),
         service.get_organization_id(&entity),
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
     // Validate and dedupe tags if entity has them
     if let Some(tags) = entity.get_tags() {
-        let validated_tags = validate_and_dedupe_tags(
-            tags.clone(),
-            user.organization_id,
-            &state.services.tag_service,
-        )
-        .await?;
+        let validated_tags =
+            validate_and_dedupe_tags(tags.clone(), organization_id, &state.services.tag_service)
+                .await?;
         entity.set_tags(validated_tags);
     }
 
     let created = service
-        .create(entity, user.clone().into())
+        .create(entity, auth.into_entity())
         .await
         .map_err(|e| {
             // Use From<anyhow::Error> to properly handle ValidationError (400) vs internal errors (500)
@@ -141,7 +143,7 @@ where
             if api_error.status.is_server_error() {
                 tracing::error!(
                     entity_type = T::table_name(),
-                    user_id = %user.user_id,
+                    user_id = ?user_id,
                     error = %api_error.message,
                     "Failed to create entity"
                 );
@@ -154,27 +156,36 @@ where
 
 pub async fn get_all_handler<T>(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    auth: Authorized<Viewer>,
     Query(query): Query<T::FilterQuery>,
 ) -> ApiResult<Json<ApiResponse<Vec<T>>>>
 where
     T: CrudHandlers + 'static + ChangeTriggersTopologyStaleness<T> + Default,
     Entity: From<T>,
 {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth.user_id();
+
     let base_filter = if T::is_network_keyed() {
-        EntityFilter::unfiltered().network_ids(&user.network_ids)
+        EntityFilter::unfiltered().network_ids(&network_ids)
+    } else if T::table_name() == "networks" {
+        // Networks are org-scoped but should be filtered to only those the user has access to
+        EntityFilter::unfiltered().entity_ids(&network_ids)
     } else {
-        EntityFilter::unfiltered().organization_id(&user.organization_id)
+        EntityFilter::unfiltered().organization_id(&organization_id)
     };
 
-    let filter = query.apply_to_filter(base_filter, &user.network_ids, user.organization_id);
+    let filter = query.apply_to_filter(base_filter, &network_ids, organization_id);
 
     let service = T::get_service(&state);
 
     let entities = service.get_all(filter).await.map_err(|e| {
         tracing::error!(
             entity_type = T::table_name(),
-            user_id = %user.user_id,
+            user_id = ?user_id,
             error = %e,
             "Failed to fetch entities"
         );
@@ -186,13 +197,19 @@ where
 
 pub async fn get_by_id_handler<T>(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Viewer>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<T>>>
 where
     T: CrudHandlers + 'static + ChangeTriggersTopologyStaleness<T> + Default,
     Entity: From<T>,
 {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth.user_id();
+
     let service = T::get_service(&state);
     let entity = service
         .get_by_id(&id)
@@ -201,7 +218,7 @@ where
             tracing::error!(
                 entity_type = T::table_name(),
                 entity_id = %id,
-                user_id = %user.user_id,
+                user_id = ?user_id,
                 error = %e,
                 "Failed to fetch entity by ID"
             );
@@ -211,7 +228,7 @@ where
             tracing::warn!(
                 entity_type = T::table_name(),
                 entity_id = %id,
-                user_id = %user.user_id,
+                user_id = ?user_id,
                 "Entity not found"
             );
             ApiError::not_found(format!("{} '{}' not found", T::entity_name(), id))
@@ -220,8 +237,8 @@ where
     validate_read_access(
         service.get_network_id(&entity),
         service.get_organization_id(&entity),
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
     Ok(Json(ApiResponse::success(entity)))
@@ -229,7 +246,7 @@ where
 
 pub async fn update_handler<T>(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
     Json(mut entity): Json<T>,
 ) -> ApiResult<Json<ApiResponse<T>>>
@@ -237,6 +254,12 @@ where
     T: CrudHandlers + 'static + ChangeTriggersTopologyStaleness<T> + Default,
     Entity: From<T>,
 {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth.user_id();
+
     let service = T::get_service(&state);
 
     // Fetch existing entity and verify ownership BEFORE any updates
@@ -248,7 +271,7 @@ where
             tracing::error!(
                 entity_type = T::table_name(),
                 entity_id = %id,
-                user_id = %user.user_id,
+                user_id = ?user_id,
                 error = %e,
                 "Failed to fetch entity for update"
             );
@@ -258,7 +281,7 @@ where
             tracing::warn!(
                 entity_type = T::table_name(),
                 entity_id = %id,
-                user_id = %user.user_id,
+                user_id = ?user_id,
                 "Entity not found for update"
             );
             ApiError::not_found(format!("{} '{}' not found", T::entity_name(), id))
@@ -280,23 +303,20 @@ where
         service.get_organization_id(&existing),
         service.get_network_id(&entity),
         service.get_organization_id(&entity),
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
     // Validate and dedupe tags if entity has them
     if let Some(tags) = entity.get_tags() {
-        let validated_tags = validate_and_dedupe_tags(
-            tags.clone(),
-            user.organization_id,
-            &state.services.tag_service,
-        )
-        .await?;
+        let validated_tags =
+            validate_and_dedupe_tags(tags.clone(), organization_id, &state.services.tag_service)
+                .await?;
         entity.set_tags(validated_tags);
     }
 
     let updated = service
-        .update(&mut entity, user.clone().into())
+        .update(&mut entity, auth.into_entity())
         .await
         .map_err(|e| {
             // Use From<anyhow::Error> to properly handle ValidationError (400) vs internal errors (500)
@@ -305,7 +325,7 @@ where
                 tracing::error!(
                     entity_type = T::table_name(),
                     entity_id = %id,
-                    user_id = %user.user_id,
+                    user_id = ?user_id,
                     error = %api_error.message,
                     "Failed to update entity"
                 );
@@ -318,13 +338,18 @@ where
 
 pub async fn delete_handler<T>(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>>
 where
     T: CrudHandlers + 'static + ChangeTriggersTopologyStaleness<T> + Default,
     Entity: From<T>,
 {
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+
     let service = T::get_service(&state);
 
     // Fetch entity first to verify ownership
@@ -352,11 +377,11 @@ where
     validate_delete_access(
         service.get_network_id(&entity),
         service.get_organization_id(&entity),
-        &user.network_ids,
-        user.organization_id,
+        &network_ids,
+        organization_id,
     )?;
 
-    service.delete(&id, user.into()).await.map_err(|e| {
+    service.delete(&id, auth.into_entity()).await.map_err(|e| {
         // Use From<anyhow::Error> to properly handle ValidationError (400) vs internal errors (500)
         let api_error = ApiError::from(e);
         if api_error.status.is_server_error() {
@@ -375,7 +400,7 @@ where
 
 pub async fn bulk_delete_handler<T>(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(ids): Json<Vec<Uuid>>,
 ) -> ApiResult<Json<ApiResponse<BulkDeleteResponse>>>
 where
@@ -385,6 +410,12 @@ where
     if ids.is_empty() {
         return Err(ApiError::bad_request("No IDs provided for bulk delete"));
     }
+
+    let network_ids = auth.network_ids();
+    let organization_id = auth
+        .organization_id()
+        .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+    let user_id = auth.user_id();
 
     let service = T::get_service(&state);
 
@@ -398,7 +429,7 @@ where
         let missing: Vec<&Uuid> = ids.iter().filter(|id| !found_ids.contains(id)).collect();
         tracing::warn!(
             entity_type = T::table_name(),
-            user_id = %user.user_id,
+            user_id = ?user_id,
             missing_ids = ?missing,
             "Bulk delete requested non-existent entities"
         );
@@ -409,8 +440,8 @@ where
         validate_bulk_delete_access(
             service.get_network_id(entity),
             service.get_organization_id(entity),
-            &user.network_ids,
-            user.organization_id,
+            &network_ids,
+            organization_id,
         )?;
     }
 
@@ -418,7 +449,7 @@ where
     let valid_ids: Vec<Uuid> = entities.iter().map(|e| e.id()).collect();
 
     let deleted_count = service
-        .delete_many(&valid_ids, user.clone().into())
+        .delete_many(&valid_ids, auth.into_entity())
         .await
         .map_err(|e| {
             // Use From<anyhow::Error> to properly handle ValidationError (400) vs internal errors (500)
@@ -426,7 +457,7 @@ where
             if api_error.status.is_server_error() {
                 tracing::error!(
                     entity_type = T::table_name(),
-                    user_id = %user.user_id,
+                    user_id = ?user_id,
                     error = %api_error.message,
                     "Failed to bulk delete entities"
                 );

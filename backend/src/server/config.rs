@@ -48,8 +48,8 @@ pub struct ServerCli {
     use_secure_session_cookies: Option<bool>,
 
     /// Enable or disable registration flow
-    #[arg(long)]
-    disable_registration: bool,
+    #[arg(long, num_args = 0..=1, default_missing_value = "true")]
+    disable_registration: Option<bool>,
 
     /// OIDC redirect url
     #[arg(long)]
@@ -257,8 +257,9 @@ impl ServerConfig {
         if let Some(posthog_key) = cli_args.posthog_key {
             figment = figment.merge(("posthog_key", posthog_key));
         }
-
-        figment = figment.merge(("disable_registration", cli_args.disable_registration));
+        if let Some(disable_registration) = cli_args.disable_registration {
+            figment = figment.merge(("disable_registration", disable_registration));
+        }
 
         let config: ServerConfig = figment
             .extract()

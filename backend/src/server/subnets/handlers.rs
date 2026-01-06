@@ -1,17 +1,14 @@
-use crate::server::auth::middleware::auth::{AuthenticatedEntity, AuthenticatedUser};
-use crate::server::auth::middleware::permissions::{MemberOrDaemon, RequireMember};
-use crate::server::shared::handlers::traits::{CrudHandlers, create_handler, update_handler};
+use crate::server::auth::middleware::auth::AuthenticatedEntity;
+use crate::server::auth::middleware::permissions::{Authorized, IsDaemon, Member, Or, Viewer};
+use crate::server::shared::handlers::query::{FilterQueryExtractor, NetworkFilterQuery};
+use crate::server::shared::handlers::traits::{CrudHandlers, update_handler};
+use crate::server::shared::services::traits::CrudService;
 use crate::server::shared::storage::filter::EntityFilter;
-use crate::server::shared::types::api::{ApiError, ApiErrorResponse, ApiJson};
-use crate::server::{
-    config::AppState,
-    shared::{
-        services::traits::CrudService,
-        types::api::{ApiResponse, ApiResult},
-    },
-    subnets::r#impl::base::Subnet,
+use crate::server::shared::types::api::{
+    ApiError, ApiErrorResponse, ApiJson, ApiResponse, ApiResult,
 };
-use axum::extract::{Path, State};
+use crate::server::{config::AppState, subnets::r#impl::base::Subnet};
+use axum::extract::{Path, Query, State};
 use axum::response::Json;
 use std::sync::Arc;
 use utoipa_axum::{router::OpenApiRouter, routes};
@@ -21,20 +18,75 @@ use uuid::Uuid;
 mod generated {
     use super::*;
     crate::crud_get_by_id_handler!(Subnet, "subnets", "subnet");
-    crate::crud_get_all_handler!(Subnet, "subnets", "subnet");
     crate::crud_delete_handler!(Subnet, "subnets", "subnet");
     crate::crud_bulk_delete_handler!(Subnet, "subnets");
 }
 
 pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
     OpenApiRouter::new()
-        .routes(routes!(generated::get_all, create_subnet))
+        .routes(routes!(get_all_subnets, create_subnet))
         .routes(routes!(
             generated::get_by_id,
             update_subnet,
             generated::delete
         ))
         .routes(routes!(generated::bulk_delete))
+}
+
+/// Get all subnets
+///
+/// Returns all subnets accessible to the authenticated user or daemon.
+/// Daemons can only access subnets within their assigned network.
+#[utoipa::path(
+    get,
+    path = "",
+    tag = "subnets",
+    operation_id = "list_subnets",
+    summary = "List all subnets",
+    params(NetworkFilterQuery),
+    responses(
+        (status = 200, description = "List of subnets", body = ApiResponse<Vec<Subnet>>),
+    ),
+    security( ("user_api_key" = []),("session" = []), ("daemon_api_key" = []))
+)]
+async fn get_all_subnets(
+    state: State<Arc<AppState>>,
+    auth: Authorized<Or<Viewer, IsDaemon>>,
+    query: Query<NetworkFilterQuery>,
+) -> ApiResult<Json<ApiResponse<Vec<Subnet>>>> {
+    let network_ids = auth.network_ids();
+    let organization_id = auth.organization_id();
+    let entity = auth.into_entity();
+
+    match entity {
+        AuthenticatedEntity::Daemon { network_id, .. } => {
+            // Daemons can only access subnets in their network
+            let filter = EntityFilter::unfiltered().network_ids(&[network_id]);
+            let service = Subnet::get_service(&state);
+            let subnets = service.get_all(filter).await.map_err(|e| {
+                tracing::error!(
+                    error = %e,
+                    network_id = %network_id,
+                    "Failed to fetch subnets for daemon"
+                );
+                ApiError::internal_error(&e.to_string())
+            })?;
+            Ok(Json(ApiResponse::success(subnets)))
+        }
+        _ => {
+            // Users/API keys - use standard filter with query params
+            let org_id = organization_id
+                .ok_or_else(|| ApiError::forbidden("Organization context required"))?;
+            let base_filter = EntityFilter::unfiltered().network_ids(&network_ids);
+            let filter = query.apply_to_filter(base_filter, &network_ids, org_id);
+            let service = Subnet::get_service(&state);
+            let subnets = service.get_all(filter).await.map_err(|e| {
+                tracing::error!(error = %e, "Failed to fetch subnets");
+                ApiError::internal_error(&e.to_string())
+            })?;
+            Ok(Json(ApiResponse::success(subnets)))
+        }
+    }
 }
 
 /// Create a new subnet
@@ -47,13 +99,16 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 200, description = "Subnet created successfully", body = ApiResponse<Subnet>),
         (status = 400, description = "Invalid request", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+    security( ("user_api_key" = []),("session" = []), ("daemon_api_key" = []))
 )]
 async fn create_subnet(
     state: State<Arc<AppState>>,
-    MemberOrDaemon { entity, .. }: MemberOrDaemon,
+    auth: Authorized<Or<Member, IsDaemon>>,
     ApiJson(request): ApiJson<Subnet>,
 ) -> ApiResult<Json<ApiResponse<Subnet>>> {
+    let network_ids = auth.network_ids();
+    let entity = auth.into_entity();
+
     tracing::debug!(
         subnet_name = %request.base.name,
         subnet_cidr = %request.base.cidr,
@@ -76,49 +131,35 @@ async fn create_subnet(
         )));
     }
 
-    let created = match entity {
-        AuthenticatedEntity::User {
-            user_id,
-            organization_id,
-            permissions,
-            network_ids,
-            email,
-        } => {
-            let authenticated_user = AuthenticatedUser {
-                user_id,
-                organization_id,
-                permissions,
-                network_ids,
-                email,
-            };
-            create_handler::<Subnet>(state, RequireMember(authenticated_user), Json(request))
-                .await?
-        }
+    let created = match &entity {
         AuthenticatedEntity::Daemon { network_id, .. } => {
-            if network_id == request.base.network_id {
+            if *network_id == request.base.network_id {
                 let service = Subnet::get_service(&state);
-                let created = service.create(request, entity.clone()).await.map_err(|e| {
+                let created = service.create(request, entity).await.map_err(|e| {
                     tracing::error!(
                         error = %e,
-                        entity_id = %entity.entity_id(),
                         "Failed to create subnet"
                     );
                     ApiError::internal_error(&e.to_string())
                 })?;
-
                 Json(ApiResponse::success(created))
             } else {
-                return Err(ApiError::bad_request(&format!(
-                    "Daemon tried to create subnet on a network that it doesn't belong to: {}",
-                    entity
-                )));
+                return Err(ApiError::bad_request(
+                    "Daemon cannot create subnets on other networks",
+                ));
             }
         }
         _ => {
-            return Err(ApiError::bad_request(&format!(
-                "AuthenticatedEntity besides a user or daemon tried to create a subnet: {}",
-                entity
-            )));
+            // User/API key - validate network access and create
+            if !network_ids.contains(&request.base.network_id) {
+                return Err(ApiError::forbidden("You don't have access to this network"));
+            }
+            let service = Subnet::get_service(&state);
+            let created = service.create(request, entity).await.map_err(|e| {
+                tracing::error!(error = %e, "Failed to create subnet");
+                ApiError::internal_error(&e.to_string())
+            })?;
+            Json(ApiResponse::success(created))
         }
     };
 
@@ -140,11 +181,11 @@ async fn create_subnet(
         (status = 400, description = "CIDR change would orphan existing interfaces", body = ApiErrorResponse),
         (status = 404, description = "Subnet not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_subnet(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Path(id): Path<Uuid>,
     ApiJson(subnet): ApiJson<Subnet>,
 ) -> ApiResult<Json<ApiResponse<Subnet>>> {
@@ -180,5 +221,5 @@ async fn update_subnet(
     }
 
     // Delegate to generic handler
-    update_handler::<Subnet>(State(state), user, Path(id), Json(subnet)).await
+    update_handler::<Subnet>(State(state), auth, Path(id), Json(subnet)).await
 }

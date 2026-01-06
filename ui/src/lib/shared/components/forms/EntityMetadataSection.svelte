@@ -1,28 +1,11 @@
 <script lang="ts">
-	import type { Group } from '$lib/features/groups/types/base';
-	import type { Subnet } from '$lib/features/subnets/types/base';
-	import type { Host } from '$lib/features/hosts/types/base';
 	import { formatId, formatTimestamp } from '$lib/shared/utils/formatting';
 	import { Calendar, Clock, Hash } from 'lucide-svelte';
-	import type { Service } from '$lib/features/services/types/base';
 	import { pushWarning } from '$lib/shared/stores/feedback';
 	import CodeContainer from '../data/CodeContainer.svelte';
-	import type { Network } from '$lib/features/networks/types';
-	import type { Discovery } from '$lib/features/discovery/types/base';
-	import type { ApiKey } from '$lib/features/api_keys/types/base';
-	import type { Tag } from '$lib/features/tags/types/base';
 
-	export let entities: (
-		| Group
-		| Host
-		| Subnet
-		| Service
-		| Network
-		| Discovery
-		| ApiKey
-		| Tag
-		| null
-	)[] = [null];
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	export let entities: (any | null)[] = [null];
 	export let showSummary: boolean = true;
 
 	let id = entities.length == 1 ? entities[0]?.id : null;

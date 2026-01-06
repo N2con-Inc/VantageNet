@@ -108,9 +108,9 @@
 </script>
 
 <GenericModal {isOpen} onClose={onCancel} title="Review Refresh Conflicts" size="lg">
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<AlertTriangle class="h-6 w-6 text-red-600 dark:text-red-400" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="space-y-4 p-6">
 		<!-- Warning header -->
@@ -129,19 +129,21 @@
 		/>
 	</div>
 
-	<svelte:fragment slot="footer">
-		<div class="flex w-full items-center justify-between">
-			<button class="btn-secondary" on:click={onCancel}> Cancel </button>
-			<div class="flex gap-3">
-				<button class="btn-primary flex items-center gap-2" on:click={onLock}>
-					<Lock class="h-4 w-4" />
-					Lock
-				</button>
-				<button class="btn-danger flex items-center gap-2" on:click={onConfirm}>
-					<RefreshCcw class="h-4 w-4" />
-					Rebulid
-				</button>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex w-full items-center justify-between">
+				<button class="btn-secondary" on:click={onCancel}> Cancel </button>
+				<div class="flex gap-3">
+					<button class="btn-primary flex items-center gap-2" on:click={onLock}>
+						<Lock class="h-4 w-4" />
+						Lock
+					</button>
+					<button class="btn-danger flex items-center gap-2" on:click={onConfirm}>
+						<RefreshCcw class="h-4 w-4" />
+						Rebulid
+					</button>
+				</div>
 			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

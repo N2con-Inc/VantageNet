@@ -127,14 +127,13 @@
 	preventCloseOnClickOutside={true}
 	centerTitle={true}
 >
-	<!-- Header icon -->
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<img
 			src="https://cdn.jsdelivr.net/gh/scanopy/website@main/static/scanopy-logo.png"
 			alt="Scanopy Logo"
 			class="h-8 w-8"
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<form
 		onsubmit={(e) => {

@@ -169,6 +169,7 @@ impl OidcService {
             .await?;
 
         // Publish event
+        let authentication: AuthenticatedEntity = user.clone().into();
         self.event_bus
             .publish_auth(AuthEvent {
                 id: Uuid::new_v4(),
@@ -183,7 +184,8 @@ impl OidcService {
                     "provider": provider.slug,
                     "provider_name": provider.name
                 }),
-                authentication: user.clone().into(),
+
+                authentication,
             })
             .await?;
 
@@ -219,6 +221,7 @@ impl OidcService {
             })?;
 
         // Publish event
+        let authentication: AuthenticatedEntity = user.clone().into();
         self.event_bus
             .publish_auth(AuthEvent {
                 id: Uuid::new_v4(),
@@ -233,7 +236,8 @@ impl OidcService {
                     "provider": provider.slug,
                     "provider_name": provider.name
                 }),
-                authentication: user.clone().into(),
+
+                authentication,
             })
             .await?;
 
@@ -317,6 +321,7 @@ impl OidcService {
                     "provider": provider.slug,
                     "provider_name": provider.name
                 }),
+
                 authentication: authentication.clone(),
             })
             .await?;
@@ -372,6 +377,7 @@ impl OidcService {
                     "provider": provider.slug,
                     "provider_name": provider.name
                 }),
+
                 authentication: authentication.clone(),
             })
             .await?;

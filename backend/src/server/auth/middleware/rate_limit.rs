@@ -1,50 +1,56 @@
-use crate::server::{
-    auth::middleware::auth::AuthenticatedEntity, config::AppState, shared::types::api::ApiError,
-};
+use crate::server::config::AppState;
+#[cfg(not(feature = "generate-fixtures"))]
+use crate::server::{auth::middleware::auth::AuthenticatedEntity, shared::types::api::ApiError};
+#[cfg(not(feature = "generate-fixtures"))]
+use axum::{extract::FromRequestParts, response::IntoResponse};
 use axum::{
-    extract::{FromRequestParts, Request, State},
+    extract::{Request, State},
     middleware::Next,
-    response::{IntoResponse, Response},
+    response::Response,
 };
 use axum_client_ip::ClientIp;
+#[cfg(not(feature = "generate-fixtures"))]
 use governor::{
     Quota, RateLimiter,
     clock::{Clock, DefaultClock},
     state::keyed::DashMapStateStore,
 };
-use std::{
-    net::IpAddr,
-    num::NonZeroU32,
-    sync::{Arc, OnceLock},
-    time::Duration,
-};
+use std::sync::Arc;
+#[cfg(not(feature = "generate-fixtures"))]
+use std::{net::IpAddr, num::NonZeroU32, sync::OnceLock, time::Duration};
+#[cfg(not(feature = "generate-fixtures"))]
 use uuid::Uuid;
 
+#[cfg(not(feature = "generate-fixtures"))]
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub enum RateLimitKey {
     User(Uuid),
     Ip(IpAddr),
 }
 
+#[cfg(not(feature = "generate-fixtures"))]
 type KeyedRateLimiter =
     Arc<RateLimiter<RateLimitKey, DashMapStateStore<RateLimitKey>, DefaultClock>>;
 
+#[cfg(not(feature = "generate-fixtures"))]
 struct RateLimiters {
     user: KeyedRateLimiter,
     anonymous: KeyedRateLimiter,
 }
 
+#[cfg(not(feature = "generate-fixtures"))]
 static RATE_LIMITERS: OnceLock<RateLimiters> = OnceLock::new();
 
+#[cfg(not(feature = "generate-fixtures"))]
 fn get_limiters() -> &'static RateLimiters {
     RATE_LIMITERS.get_or_init(|| {
         let limiters = RateLimiters {
-            // Users: 5000 requests per hour
+            // Authenticated users and API keys: 300 requests per minute with burst of 150
             user: Arc::new(RateLimiter::keyed(
                 Quota::per_minute(NonZeroU32::new(300).unwrap())
                     .allow_burst(NonZeroU32::new(150).unwrap()),
             )),
-            // Anonymous: 20 requests per minute
+            // Anonymous/unauthenticated: 20 requests per minute with burst of 5
             anonymous: Arc::new(RateLimiter::keyed(
                 Quota::per_minute(NonZeroU32::new(20).unwrap())
                     .allow_burst(NonZeroU32::new(5).unwrap()),
@@ -73,6 +79,7 @@ fn get_limiters() -> &'static RateLimiters {
     })
 }
 
+#[cfg(not(feature = "generate-fixtures"))]
 #[derive(Debug, Clone)]
 struct RateLimitInfo {
     limit: u32,
@@ -80,6 +87,7 @@ struct RateLimitInfo {
     reset_in_secs: u64,
 }
 
+#[cfg(not(feature = "generate-fixtures"))]
 impl RateLimitInfo {
     fn apply_headers(&self, response: &mut Response) {
         let headers = response.headers_mut();
@@ -111,6 +119,7 @@ impl RateLimitInfo {
     }
 }
 
+#[cfg(not(feature = "generate-fixtures"))]
 fn check_user(user_id: Uuid) -> Result<RateLimitInfo, RateLimitInfo> {
     let limiters = get_limiters();
     let key = RateLimitKey::User(user_id);
@@ -134,6 +143,7 @@ fn check_user(user_id: Uuid) -> Result<RateLimitInfo, RateLimitInfo> {
     }
 }
 
+#[cfg(not(feature = "generate-fixtures"))]
 fn check_anonymous(ip: IpAddr) -> Result<RateLimitInfo, RateLimitInfo> {
     let limiters = get_limiters();
     let key = RateLimitKey::Ip(ip);
@@ -163,44 +173,54 @@ pub async fn rate_limit_middleware(
     request: Request,
     next: Next,
 ) -> Result<Response, Response> {
-    let path = request.uri().path();
-
-    let exempt_paths = ["/api/billing/webhooks/", "/api/config", "/api/metadata"];
-
-    // Exempt static file serving, billing webhooks, config and metadata
-    if !path.starts_with("/api/") || exempt_paths.contains(&path) {
-        return Ok(next.run(request).await);
-    }
-
-    let (mut parts, body) = request.into_parts();
-
-    let entity = AuthenticatedEntity::from_request_parts(&mut parts, &state)
-        .await
-        .ok();
-
-    // Daemons and System are exempt from rate limiting
-    if let Some(ref e) = entity
-        && matches!(
-            e,
-            AuthenticatedEntity::Daemon { .. } | AuthenticatedEntity::System
-        )
+    #[cfg(feature = "generate-fixtures")]
     {
-        let request = Request::from_parts(parts, body);
-        return Ok(next.run(request).await);
+        let _ = (state, ip);
+        Ok(next.run(request).await)
     }
 
-    let check_result = match entity {
-        Some(AuthenticatedEntity::User { user_id, .. }) => check_user(user_id),
-        _ => check_anonymous(ip),
-    };
+    #[cfg(not(feature = "generate-fixtures"))]
+    {
+        let path = request.uri().path();
 
-    match check_result {
-        Ok(info) => {
-            let request = Request::from_parts(parts, body);
-            let mut response = next.run(request).await;
-            info.apply_headers(&mut response);
-            Ok(response)
+        let exempt_paths = ["/api/billing/webhooks/", "/api/config", "/api/metadata"];
+
+        // Exempt static file serving, billing webhooks, config and metadata
+        if !path.starts_with("/api/") || exempt_paths.contains(&path) {
+            return Ok(next.run(request).await);
         }
-        Err(info) => Err(info.to_error_response()),
+
+        let (mut parts, body) = request.into_parts();
+
+        let entity = AuthenticatedEntity::from_request_parts(&mut parts, &state)
+            .await
+            .ok();
+
+        // Daemons and System are exempt from rate limiting
+        if let Some(ref e) = entity
+            && matches!(
+                e,
+                AuthenticatedEntity::Daemon { .. } | AuthenticatedEntity::System
+            )
+        {
+            let request = Request::from_parts(parts, body);
+            return Ok(next.run(request).await);
+        }
+
+        let check_result = match entity {
+            Some(AuthenticatedEntity::User { user_id, .. }) => check_user(user_id),
+            Some(AuthenticatedEntity::ApiKey { user_id, .. }) => check_user(user_id),
+            _ => check_anonymous(ip),
+        };
+
+        match check_result {
+            Ok(info) => {
+                let request = Request::from_parts(parts, body);
+                let mut response = next.run(request).await;
+                info.apply_headers(&mut response);
+                Ok(response)
+            }
+            Err(info) => Err(info.to_error_response()),
+        }
     }
 }

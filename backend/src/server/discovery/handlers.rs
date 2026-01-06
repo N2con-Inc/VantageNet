@@ -1,8 +1,5 @@
 use crate::server::{
-    auth::middleware::{
-        auth::{AuthenticatedDaemon, AuthenticatedUser},
-        permissions::RequireMember,
-    },
+    auth::middleware::permissions::{Authorized, IsDaemon, Member, Viewer},
     config::AppState,
     daemons::r#impl::api::DiscoveryUpdatePayload,
     discovery::r#impl::{
@@ -68,11 +65,11 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
         (status = 400, description = "Invalid subnet network", body = ApiErrorResponse),
         (status = 400, description = "Can't create historical discovery", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn create_discovery(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Json(discovery): Json<Discovery>,
 ) -> ApiResult<Json<ApiResponse<Discovery>>> {
     if let RunType::Historical { .. } = discovery.base.run_type {
@@ -100,7 +97,7 @@ pub async fn create_discovery(
     }
 
     // Delegate to generic handler (handles validation, auth checks, creation)
-    create_handler::<Discovery>(State(state), user, Json(discovery)).await
+    create_handler::<Discovery>(State(state), auth, Json(discovery)).await
 }
 
 /// Update discovery
@@ -115,11 +112,11 @@ pub async fn create_discovery(
         (status = 400, description = "Invalid subnet network", body = ApiErrorResponse),
         (status = 400, description = "Can't update historical discovery", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 pub async fn update_discovery(
     state: State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     id: Path<Uuid>,
     discovery: Json<Discovery>,
 ) -> ApiResult<Json<ApiResponse<Discovery>>> {
@@ -129,7 +126,7 @@ pub async fn update_discovery(
         ));
     }
 
-    update_handler::<Discovery>(state, user, id, discovery).await
+    update_handler::<Discovery>(state, auth, id, discovery).await
 }
 
 /// Receive discovery progress update from daemon
@@ -144,14 +141,32 @@ pub async fn update_discovery(
     responses(
         (status = 200, description = "Update received", body = EmptyApiResponse),
     ),
-    security(("api_key" = []))
+    security(("daemon_api_key" = []))
 )]
 async fn receive_discovery_update(
     State(state): State<Arc<AppState>>,
-    _daemon: AuthenticatedDaemon,
+    auth: Authorized<IsDaemon>,
     Path(_session_id): Path<Uuid>,
     Json(update): Json<DiscoveryUpdatePayload>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    // IsDaemon guarantees exactly one network_id and a daemon_id
+    let daemon_network_id = auth.network_ids()[0];
+    let daemon_id = auth.daemon_id().expect("IsDaemon ensures daemon_id exists");
+
+    // Validate daemon can only send updates for their own network
+    if update.network_id != daemon_network_id {
+        return Err(ApiError::forbidden(
+            "Cannot send updates for a different network",
+        ));
+    }
+
+    // Validate daemon can only send updates as themselves
+    if update.daemon_id != daemon_id {
+        return Err(ApiError::forbidden(
+            "Cannot send updates for a different daemon",
+        ));
+    }
+
     state
         .services
         .discovery_service
@@ -171,19 +186,29 @@ async fn receive_discovery_update(
         (status = 200, description = "Discovery session started", body = ApiResponse<DiscoveryUpdatePayload>),
         (status = 404, description = "Discovery not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn start_session(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Json(discovery_id): Json<Uuid>,
 ) -> ApiResult<Json<ApiResponse<DiscoveryUpdatePayload>>> {
+    let network_ids = auth.network_ids();
+    let entity = auth.into_entity();
+
     let mut discovery = state
         .services
         .discovery_service
         .get_by_id(&discovery_id)
         .await?
         .ok_or_else(|| ApiError::not_found(format!("Discovery '{}' not found", &discovery_id)))?;
+
+    // Validate user has access to this discovery's network
+    if !network_ids.contains(&discovery.base.network_id) {
+        return Err(ApiError::forbidden(
+            "You don't have access to this discovery's network",
+        ));
+    }
 
     // Update last_run BEFORE moving any fields
     if let RunType::Scheduled {
@@ -201,13 +226,13 @@ async fn start_session(
     let update = state
         .services
         .discovery_service
-        .start_session(discovery.clone(), user.clone().into())
+        .start_session(discovery.clone(), entity.clone())
         .await?;
 
     state
         .services
         .discovery_service
-        .update_discovery(discovery, user.into())
+        .update_discovery(discovery, entity)
         .await?;
 
     Ok(Json(ApiResponse::success(update)))
@@ -215,10 +240,10 @@ async fn start_session(
 
 async fn discovery_stream(
     State(state): State<Arc<AppState>>,
-    user: AuthenticatedUser,
+    auth: Authorized<Viewer>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let mut rx = state.services.discovery_service.subscribe();
-    let allowed_networks = user.network_ids;
+    let allowed_networks = auth.network_ids();
 
     let stream = async_stream::stream! {
         loop {
@@ -250,16 +275,17 @@ async fn discovery_stream(
     responses(
         (status = 200, description = "List of active discovery sessions", body = ApiResponse<Vec<DiscoveryUpdatePayload>>),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn get_active_sessions(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Viewer>,
 ) -> ApiResult<Json<ApiResponse<Vec<DiscoveryUpdatePayload>>>> {
+    let network_ids = auth.network_ids();
     let sessions = state
         .services
         .discovery_service
-        .get_all_sessions(&user.network_ids)
+        .get_all_sessions(&network_ids)
         .await;
 
     Ok(Json(ApiResponse::success(sessions)))
@@ -274,17 +300,29 @@ async fn get_active_sessions(
     responses(
         (status = 200, description = "Discovery session cancelled", body = EmptyApiResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn cancel_discovery(
     State(state): State<Arc<AppState>>,
-    RequireMember(user): RequireMember,
+    auth: Authorized<Member>,
     Path(session_id): Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
+    // Get session and validate user has access to this session's network
+    let session = state
+        .services
+        .discovery_service
+        .get_session(&session_id)
+        .await
+        .ok_or_else(|| ApiError::not_found(format!("Session '{}' not found", session_id)))?;
+
+    if !auth.network_ids().contains(&session.network_id) {
+        return Err(ApiError::forbidden("You don't have access to this session"));
+    }
+
     state
         .services
         .discovery_service
-        .cancel_session(session_id, user.into())
+        .cancel_session(session_id, auth.into_entity())
         .await?;
 
     tracing::info!("Discovery session was {} cancelled", session_id);

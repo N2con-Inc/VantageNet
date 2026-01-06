@@ -15,7 +15,7 @@
 	import { useConfigQuery, isSelfHosted } from '$lib/shared/stores/config-query';
 	import { resolve } from '$app/paths';
 	import { onboardingStore } from '$lib/features/auth/stores/onboarding';
-	import { setPreferredNetwork } from '$lib/features/topology/store';
+	import { setPreferredNetwork } from '$lib/features/topology/queries';
 	import { trackEvent, trackPlunkEvent } from '$lib/shared/utils/analytics';
 
 	// TanStack Query mutations

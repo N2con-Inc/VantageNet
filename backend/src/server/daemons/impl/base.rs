@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
 use clap::ValueEnum;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use utoipa::ToSchema;
@@ -32,6 +33,12 @@ pub struct DaemonBase {
     #[serde(default)]
     #[schema(required)]
     pub tags: Vec<Uuid>,
+    /// Daemon software version (semver format)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    pub version: Option<Version>,
+    /// User responsible for maintaining this daemon
+    pub user_id: Uuid,
 }
 
 #[derive(

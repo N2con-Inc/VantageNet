@@ -4,7 +4,7 @@ use std::sync::Arc;
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
-use crate::server::auth::middleware::permissions::RequireMember;
+use crate::server::auth::middleware::permissions::{Authorized, Member};
 use crate::server::bindings::r#impl::base::{Binding, BindingType};
 use crate::server::bindings::service::BindingService;
 use crate::server::config::AppState;
@@ -148,11 +148,11 @@ async fn validate_no_binding_type_conflict(
         (status = 400, description = "Referenced port or interface does not exist", body = ApiErrorResponse),
         (status = 409, description = "Conflict with existing binding type", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_binding(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Json(binding): Json<Binding>,
 ) -> ApiResult<Json<ApiResponse<Binding>>> {
     validate_no_binding_type_conflict(&state, &binding, None).await?;
@@ -184,13 +184,13 @@ async fn create_binding(
                 state
                     .services
                     .binding_service
-                    .delete(&existing_binding.id, user.0.clone().into())
+                    .delete(&existing_binding.id, auth.entity.clone())
                     .await?;
             }
         }
     }
 
-    create_handler::<Binding>(State(state), user, Json(binding)).await
+    create_handler::<Binding>(State(state), auth, Json(binding)).await
 }
 
 /// Update a binding
@@ -212,16 +212,16 @@ async fn create_binding(
         (status = 400, description = "Referenced port or interface does not exist", body = ApiErrorResponse),
         (status = 409, description = "Conflict with existing binding type", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_binding(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     path: Path<Uuid>,
     Json(binding): Json<Binding>,
 ) -> ApiResult<Json<ApiResponse<Binding>>> {
     validate_no_binding_type_conflict(&state, &binding, Some(*path)).await?;
-    update_handler::<Binding>(State(state), user, path, Json(binding)).await
+    update_handler::<Binding>(State(state), auth, path, Json(binding)).await
 }
 
 pub fn create_router() -> OpenApiRouter<Arc<AppState>> {

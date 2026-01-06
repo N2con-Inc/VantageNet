@@ -120,6 +120,7 @@ impl CrudService<Group> for GroupService {
                 metadata: serde_json::json!({
                     "trigger_stale": trigger_stale
                 }),
+
                 authentication,
             })
             .await?;
@@ -161,6 +162,7 @@ impl CrudService<Group> for GroupService {
                 metadata: serde_json::json!({
                     "trigger_stale": trigger_stale
                 }),
+
                 authentication,
             })
             .await?;

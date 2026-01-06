@@ -29,6 +29,8 @@ impl DaemonApiClient {
 
                 Client::builder()
                     .danger_accept_invalid_certs(allow_self_signed_certs)
+                    .connect_timeout(Duration::from_secs(10))
+                    .timeout(Duration::from_secs(30))
                     .build()
                     .map_err(|e| anyhow::anyhow!("Failed to build HTTP client: {}", e))
             })
@@ -60,28 +62,24 @@ impl DaemonApiClient {
         response: reqwest::Response,
         context: &str,
     ) -> Result<ApiResponse<serde_json::Value>, Error> {
-        if !response.status().is_success() {
-            bail!("{}: HTTP {}", context, response.status());
-        }
+        let status = response.status();
 
-        let api_response: ApiResponse<serde_json::Value> = response.json().await?;
+        // Always try to parse the response body - even error responses contain useful messages
+        let api_response: ApiResponse<serde_json::Value> = match response.json().await {
+            Ok(parsed) => parsed,
+            Err(_) if !status.is_success() => {
+                // Couldn't parse body, fall back to just HTTP status
+                bail!("{}: HTTP {}", context, status);
+            }
+            Err(e) => {
+                bail!("{}: Failed to parse response: {}", context, e);
+            }
+        };
 
         if !api_response.success {
-            let daemon_id = self.config_store.get_id().await?;
             let error_msg = api_response
                 .error
-                .unwrap_or_else(|| "Unknown error".to_string());
-
-            if error_msg.contains("not found") {
-                tracing::error!(
-                    daemon_id = %daemon_id,
-                    error = %error_msg,
-                    "{}: Daemon ID not found on server. Please remove config and reinstall daemon.",
-                    context
-                );
-            } else {
-                tracing::error!(daemon_id = %daemon_id, error = %error_msg, "{}", context);
-            }
+                .unwrap_or_else(|| format!("HTTP {}", status));
 
             bail!("{}: {}", context, error_msg);
         }

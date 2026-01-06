@@ -1,4 +1,3 @@
-use crate::server::auth::middleware::permissions::RequireMember;
 use crate::server::shared::handlers::traits::{
     BulkDeleteResponse, CrudHandlers, bulk_delete_handler, create_handler, delete_handler,
     update_handler,
@@ -6,7 +5,7 @@ use crate::server::shared::handlers::traits::{
 use crate::server::{
     auth::middleware::{
         features::{CreateNetworkFeature, RequireFeature},
-        permissions::RequireAdmin,
+        permissions::{Admin, Authorized, Member},
     },
     shared::types::api::{ApiErrorResponse, EmptyApiResponse},
 };
@@ -47,17 +46,18 @@ pub fn create_router() -> OpenApiRouter<Arc<AppState>> {
     responses(
         (status = 200, description = "Network created", body = ApiResponse<Network>),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_network(
     State(state): State<Arc<AppState>>,
-    RequireAdmin(user): RequireAdmin,
+    auth: Authorized<Admin>,
     RequireFeature { .. }: RequireFeature<CreateNetworkFeature>,
     Json(network): Json<Network>,
 ) -> ApiResult<Json<ApiResponse<Network>>> {
+    let entity = auth.entity.clone();
     let response = create_handler::<Network>(
         State(state.clone()),
-        RequireMember(user.clone()),
+        auth.into_permission::<Member>(),
         Json(network),
     )
     .await?;
@@ -65,7 +65,7 @@ async fn create_network(
     if let Some(network) = &response.data {
         let service = Network::get_service(&state);
         service
-            .create_organizational_subnets(network.id, user.into())
+            .create_organizational_subnets(network.id, entity)
             .await?;
     }
 
@@ -84,15 +84,15 @@ async fn create_network(
         (status = 404, description = "Network not found", body = ApiErrorResponse),
         (status = 403, description = "User not admin", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_network(
     state: State<Arc<AppState>>,
-    user: RequireAdmin,
+    auth: Authorized<Admin>,
     path: Path<Uuid>,
     json: Json<Network>,
 ) -> ApiResult<Json<ApiResponse<Network>>> {
-    update_handler::<Network>(state, user.into(), path, json).await
+    update_handler::<Network>(state, auth.into_permission::<Member>(), path, json).await
 }
 
 /// Delete a network
@@ -106,14 +106,14 @@ async fn update_network(
         (status = 404, description = "Network not found", body = ApiErrorResponse),
         (status = 403, description = "User not admin", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn delete_network(
     state: State<Arc<AppState>>,
-    user: RequireAdmin,
+    auth: Authorized<Admin>,
     path: Path<Uuid>,
 ) -> ApiResult<Json<ApiResponse<()>>> {
-    delete_handler::<Network>(state, user.into(), path).await
+    delete_handler::<Network>(state, auth.into_permission::<Member>(), path).await
 }
 
 /// Bulk delete networks
@@ -126,12 +126,12 @@ async fn delete_network(
         (status = 200, description = "Networks deleted successfully", body = ApiResponse<BulkDeleteResponse>),
         (status = 403, description = "User not admin", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn bulk_delete_networks(
     state: State<Arc<AppState>>,
-    user: RequireAdmin,
+    auth: Authorized<Admin>,
     json: Json<Vec<Uuid>>,
 ) -> ApiResult<Json<ApiResponse<BulkDeleteResponse>>> {
-    bulk_delete_handler::<Network>(state, user.into(), json).await
+    bulk_delete_handler::<Network>(state, auth.into_permission::<Member>(), json).await
 }

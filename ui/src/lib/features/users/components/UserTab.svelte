@@ -14,6 +14,9 @@
 	import UserEditModal from './UserEditModal.svelte';
 	import { useCurrentUserQuery } from '$lib/features/auth/queries';
 	import { useUsersQuery, useBulkDeleteUsersMutation } from '../queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Query
 	const currentUserQuery = useCurrentUserQuery();
@@ -53,8 +56,9 @@
 
 	// Check if user can invite
 	let canInviteUsers = $derived(
-		currentUser
-			? permissions.getMetadata(currentUser.permissions).can_manage_user_permissions.length > 0
+		!isReadOnly && currentUser
+			? (permissions.getMetadata(currentUser.permissions)?.grantable_user_permissions?.length ??
+					0) > 0
 			: false
 	);
 

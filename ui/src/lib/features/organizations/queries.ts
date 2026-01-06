@@ -19,7 +19,7 @@ export function useOrganizationQuery() {
 		return {
 			queryKey: queryKeys.organizations.current(),
 			queryFn: async () => {
-				const { data } = await apiClient.GET('/api/organizations');
+				const { data } = await apiClient.GET('/api/v1/organizations');
 				if (!data?.success || !data.data) {
 					throw new Error(data?.error || 'Failed to fetch organization');
 				}
@@ -42,7 +42,7 @@ export function useInvitesQuery(options?: { enabled?: boolean | (() => boolean) 
 		return {
 			queryKey: queryKeys.invites.all,
 			queryFn: async () => {
-				const { data } = await apiClient.GET('/api/invites');
+				const { data } = await apiClient.GET('/api/v1/invites');
 				if (!data?.success || !data.data) {
 					throw new Error(data?.error || 'Failed to fetch invites');
 				}
@@ -61,7 +61,7 @@ export function useUpdateOrganizationMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async ({ id, name }: { id: string; name: string }) => {
-			const { data } = await apiClient.PUT('/api/organizations/{id}', {
+			const { data } = await apiClient.PUT('/api/v1/organizations/{id}', {
 				params: { path: { id } },
 				body: name
 			});
@@ -99,7 +99,7 @@ export function useCreateInviteMutation() {
 				send_to: email?.length === 0 ? null : email
 			};
 
-			const { data } = await apiClient.POST('/api/invites', { body: request });
+			const { data } = await apiClient.POST('/api/v1/invites', { body: request });
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to create invite');
 			}
@@ -121,7 +121,7 @@ export function useRevokeInviteMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (id: string) => {
-			const { data } = await apiClient.DELETE('/api/invites/{id}/revoke', {
+			const { data } = await apiClient.DELETE('/api/v1/invites/{id}/revoke', {
 				params: { path: { id } }
 			});
 			if (!data?.success) {
@@ -146,7 +146,7 @@ export function useResetOrganizationDataMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (orgId: string) => {
-			const { data } = await apiClient.POST('/api/organizations/{id}/reset', {
+			const { data } = await apiClient.POST('/api/v1/organizations/{id}/reset', {
 				params: { path: { id: orgId } }
 			});
 			if (!data?.success) {
@@ -169,7 +169,7 @@ export function usePopulateDemoDataMutation() {
 
 	return createMutation(() => ({
 		mutationFn: async (orgId: string) => {
-			const { data } = await apiClient.POST('/api/organizations/{id}/populate-demo', {
+			const { data } = await apiClient.POST('/api/v1/organizations/{id}/populate-demo', {
 				params: { path: { id: orgId } }
 			});
 			if (!data?.success) {
@@ -198,7 +198,7 @@ export async function fetchOrganization(): Promise<Organization> {
 	return queryClient.fetchQuery({
 		queryKey: queryKeys.organizations.current(),
 		queryFn: async () => {
-			const { data } = await apiClient.GET('/api/organizations');
+			const { data } = await apiClient.GET('/api/v1/organizations');
 			if (!data?.success || !data.data) {
 				throw new Error(data?.error || 'Failed to fetch organization');
 			}

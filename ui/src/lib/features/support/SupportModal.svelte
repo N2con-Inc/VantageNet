@@ -99,9 +99,9 @@
 </script>
 
 <GenericModal {isOpen} title="Support & Help" {onClose} size="xl">
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<ModalHeaderIcon Icon={LifeBuoy} color="Blue" />
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="space-y-6 p-6">
 		<p class="text-secondary text-sm">
@@ -139,9 +139,11 @@
 		</InfoCard>
 	</div>
 
-	<svelte:fragment slot="footer">
-		<div class="flex justify-end">
-			<button type="button" onclick={onClose} class="btn-secondary">Close</button>
+	{#snippet footer()}
+		<div class="modal-footer">
+			<div class="flex justify-end">
+				<button type="button" onclick={onClose} class="btn-secondary">Close</button>
+			</div>
 		</div>
-	</svelte:fragment>
+	{/snippet}
 </GenericModal>

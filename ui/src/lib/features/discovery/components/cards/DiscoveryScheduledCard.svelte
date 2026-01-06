@@ -20,9 +20,9 @@
 	let {
 		viewMode,
 		discovery,
-		onEdit = () => {},
-		onDelete = () => {},
-		onRun = () => {},
+		onEdit,
+		onDelete,
+		onRun,
 		selected,
 		onSelectionChange = () => {}
 	}: {
@@ -73,24 +73,15 @@
 			}
 		],
 		actions: [
-			{
-				label: 'Delete',
-				icon: Trash2,
-				class: `btn-icon`,
-				onClick: () => onDelete(discovery)
-			},
-			{
-				label: 'Run',
-				icon: Play,
-				class: `btn-icon`,
-				onClick: () => onRun(discovery)
-			},
-			{
-				label: 'Edit',
-				icon: Edit,
-				class: `btn-icon`,
-				onClick: () => onEdit(discovery)
-			}
+			...(onDelete
+				? [{ label: 'Delete', icon: Trash2, class: `btn-icon`, onClick: () => onDelete(discovery) }]
+				: []),
+			...(onRun
+				? [{ label: 'Run', icon: Play, class: `btn-icon`, onClick: () => onRun(discovery) }]
+				: []),
+			...(onEdit
+				? [{ label: 'Edit', icon: Edit, class: `btn-icon`, onClick: () => onEdit(discovery) }]
+				: [])
 		]
 	});
 </script>

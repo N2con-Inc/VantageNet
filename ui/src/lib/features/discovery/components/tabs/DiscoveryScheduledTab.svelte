@@ -2,7 +2,6 @@
 	import TabHeader from '$lib/shared/components/layout/TabHeader.svelte';
 	import EmptyState from '$lib/shared/components/layout/EmptyState.svelte';
 	import DataControls from '$lib/shared/components/data/DataControls.svelte';
-	import { initiateDiscovery } from '../../sse';
 	import type { Discovery } from '../../types/base';
 	import { discoveryFields } from '../../queries';
 	import DiscoveryEditModal from '../DiscoveryModal/DiscoveryEditModal.svelte';
@@ -16,10 +15,14 @@
 		useCreateDiscoveryMutation,
 		useUpdateDiscoveryMutation,
 		useDeleteDiscoveryMutation,
-		useBulkDeleteDiscoveriesMutation
+		useBulkDeleteDiscoveriesMutation,
+		useInitiateDiscoveryMutation
 	} from '../../queries';
 	import { useDaemonsQuery } from '$lib/features/daemons/queries';
 	import { useHostsQuery } from '$lib/features/hosts/queries';
+	import type { TabProps } from '$lib/shared/types';
+
+	let { isReadOnly = false }: TabProps = $props();
 
 	// Queries
 	const tagsQuery = useTagsQuery();
@@ -32,6 +35,7 @@
 	const updateDiscoveryMutation = useUpdateDiscoveryMutation();
 	const deleteDiscoveryMutation = useDeleteDiscoveryMutation();
 	const bulkDeleteDiscoveriesMutation = useBulkDeleteDiscoveriesMutation();
+	const initiateDiscoveryMutation = useInitiateDiscoveryMutation();
 
 	// Derived data
 	let tagsData = $derived(tagsQuery.data ?? []);
@@ -61,8 +65,8 @@
 		}
 	}
 
-	async function handleDiscoveryRun(discovery: Discovery) {
-		await initiateDiscovery(discovery.id);
+	function handleDiscoveryRun(discovery: Discovery) {
+		initiateDiscoveryMutation.mutate(discovery.id);
 	}
 
 	async function handleDiscoveryCreate(data: Discovery) {
@@ -120,9 +124,11 @@
 	<!-- Header -->
 	<TabHeader title="Scheduled Discovery" subtitle="Schedule discovery sessions">
 		<svelte:fragment slot="actions">
-			<button class="btn-primary flex items-center" onclick={handleCreateDiscovery}
-				><Plus class="h-5 w-5" />Schedule Discovery</button
-			>
+			{#if !isReadOnly}
+				<button class="btn-primary flex items-center" onclick={handleCreateDiscovery}
+					><Plus class="h-5 w-5" />Schedule Discovery</button
+				>
+			{/if}
 		</svelte:fragment>
 	</TabHeader>
 
@@ -133,8 +139,8 @@
 		<EmptyState
 			title="No discovery sessions are scheduled"
 			subtitle=""
-			onClick={handleCreateDiscovery}
-			cta="Schedule a discovery session"
+			onClick={isReadOnly ? undefined : handleCreateDiscovery}
+			cta={isReadOnly ? undefined : 'Schedule a discovery session'}
 		/>
 	{:else}
 		<DataControls
@@ -142,7 +148,7 @@
 				(d) => d.run_type.type == 'AdHoc' || d.run_type.type == 'Scheduled'
 			)}
 			{fields}
-			onBulkDelete={handleBulkDelete}
+			onBulkDelete={isReadOnly ? undefined : handleBulkDelete}
 			storageKey="scanopy-discovery-scheduled-table-state"
 			getItemId={(item) => item.id}
 		>
@@ -156,9 +162,9 @@
 					discovery={item}
 					selected={isSelected}
 					{onSelectionChange}
-					onDelete={handleDeleteDiscovery}
-					onEdit={handleEditDiscovery}
-					onRun={handleDiscoveryRun}
+					onDelete={isReadOnly ? undefined : handleDeleteDiscovery}
+					onEdit={isReadOnly ? undefined : handleEditDiscovery}
+					onRun={isReadOnly ? undefined : handleDiscoveryRun}
 					{viewMode}
 				/>
 			{/snippet}

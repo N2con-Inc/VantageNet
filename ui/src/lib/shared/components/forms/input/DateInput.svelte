@@ -38,9 +38,9 @@
 		return `${year}-${month}-${day}T${hours}:${minutes}`;
 	}
 
-	// Convert datetime-local string to ISO 8601 with Z suffix
-	function toISO8601(localString: string): string {
-		if (!localString) return '';
+	// Convert datetime-local string to ISO 8601 with Z suffix, or null if empty
+	function toISO8601(localString: string): string | null {
+		if (!localString) return null;
 		const date = new Date(localString);
 		return date.toISOString();
 	}

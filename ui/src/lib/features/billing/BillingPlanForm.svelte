@@ -44,6 +44,8 @@
 		class?: string;
 		recommendedPlan?: string | null;
 		forceCommercial?: boolean;
+		/** If true, user is a returning customer and should not see trial offers */
+		isReturningCustomer?: boolean;
 	}
 
 	// eslint-disable-next-line svelte/no-unused-props
@@ -58,7 +60,8 @@
 		class: className = '',
 		showHosting = false,
 		recommendedPlan = null,
-		forceCommercial = false
+		forceCommercial = false,
+		isReturningCustomer = false
 	}: Props = $props();
 
 	let collapsedCategories = $state<Record<string, boolean>>({});
@@ -259,7 +262,7 @@
 	}
 
 	function hasTrial(plan: BillingPlan): boolean {
-		return plan.trial_days > 0;
+		return !isReturningCustomer && plan.trial_days > 0;
 	}
 
 	function hasCustomPrice(plan: BillingPlan): boolean {
@@ -364,7 +367,7 @@
 							<div class="text-primary min-w-0 text-sm font-bold lg:text-2xl">
 								{formatBasePricing(plan)}
 							</div>
-							{#if plan.trial_days > 0 && !hasCustomPrice(plan)}
+							{#if hasTrial(plan) && !hasCustomPrice(plan)}
 								<div class="text-xs font-medium text-success">{plan.trial_days}-day free trial</div>
 							{/if}
 						</div>

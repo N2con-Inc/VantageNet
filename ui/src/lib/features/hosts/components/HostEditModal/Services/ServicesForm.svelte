@@ -13,16 +13,14 @@
 	import EntityConfigEmpty from '$lib/shared/components/forms/EntityConfigEmpty.svelte';
 	import ListSelectItem from '$lib/shared/components/forms/selection/ListSelectItem.svelte';
 	import { ArrowRightLeft } from 'lucide-svelte';
-	import InlineInfo from '$lib/shared/components/feedback/InlineInfo.svelte';
 
 	interface Props {
 		formData: HostFormData;
-		currentServices: Service[];
-		onServicesChange: (services: Service[]) => void;
-		isEditing: boolean;
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		form: { Field: any; setFieldValue: any };
 	}
 
-	let { formData = $bindable(), currentServices, onServicesChange, isEditing }: Props = $props();
+	let { formData = $bindable(), form }: Props = $props();
 
 	let selectedPortBindings = $state<PortBinding[]>([]);
 
@@ -41,11 +39,18 @@
 	function handleTransferPorts(transferToService: Service, transferFromService: Service) {
 		const bindingIdsToTransfer = new Set(selectedPortBindings.map((b) => b.id));
 
-		const updatedServices = currentServices.map((s) => {
+		// Update bindings with new service_id and network_id for the target service
+		const transferredBindings = selectedPortBindings.map((b) => ({
+			...b,
+			service_id: transferToService.id,
+			network_id: transferToService.network_id
+		}));
+
+		formData.services = formData.services.map((s) => {
 			if (s.id === transferToService.id) {
 				return {
 					...s,
-					bindings: [...s.bindings, ...selectedPortBindings]
+					bindings: [...s.bindings, ...transferredBindings]
 				};
 			} else if (s.id === transferFromService.id) {
 				return {
@@ -55,7 +60,6 @@
 			}
 			return s;
 		});
-		onServicesChange(updatedServices);
 
 		selectedPortBindings = [];
 	}
@@ -71,18 +75,18 @@
 			formData.network_id
 		);
 
-		onServicesChange([...currentServices, newService]);
+		formData.services = [...formData.services, newService];
 	}
 
 	function handleRemoveService(index: number) {
-		onServicesChange(currentServices.filter((_, i) => i !== index));
+		formData.services = formData.services.filter((_, i) => i !== index);
 	}
 
 	function handleServiceChange(service: Service, index: number) {
-		if (index >= 0 && index < currentServices.length) {
-			const updatedServices = [...currentServices];
+		if (index >= 0 && index < formData.services.length) {
+			const updatedServices = [...formData.services];
 			updatedServices[index] = service;
-			onServicesChange(updatedServices);
+			formData.services = updatedServices;
 		} else {
 			pushError('Invalid service index');
 		}
@@ -91,107 +95,108 @@
 	function handleServiceReorder(fromIndex: number, toIndex: number) {
 		if (fromIndex === toIndex) return;
 
-		const updatedServices = [...currentServices];
+		const updatedServices = [...formData.services];
 		const [movedService] = updatedServices.splice(fromIndex, 1);
 		updatedServices.splice(toIndex, 0, movedService);
 
-		onServicesChange(updatedServices);
+		formData.services = updatedServices;
+		form.setFieldValue('services', formData.services);
 	}
 </script>
 
 <div class="space-y-6">
-	{#if !isEditing}
-		<InlineInfo
-			title="Services can be added after the host is created"
-			body="Service bindings require the host's interfaces and ports to exist first. Use the buttons below to create the host, then add services."
-		/>
-	{:else}
-		<ListConfigEditor
-			items={currentServices}
-			onChange={handleServiceChange}
-			onReorder={handleServiceReorder}
-			onItemSelect={handleItemSelect}
+	<ListConfigEditor
+		items={formData.services}
+		onChange={handleServiceChange}
+		onReorder={handleServiceReorder}
+		onItemSelect={handleItemSelect}
+	>
+		<svelte:fragment
+			slot="list"
+			let:items
+			let:onEdit
+			let:highlightedIndex
+			let:highlightedItem
+			let:onMoveUp
+			let:onMoveDown
+			let:onItemSelect
 		>
-			<svelte:fragment
-				slot="list"
-				let:items
-				let:onEdit
-				let:highlightedIndex
-				let:highlightedItem
-				let:onMoveUp
-				let:onMoveDown
-				let:onItemSelect
+			{@const isTransferringPortBindings = selectedPortBindings.length > 0}
+			<ListManager
+				label="Services"
+				helpText="Services define what this host provides to the network. The icon for the first service in the list will be used as the host's logo in the Host tab."
+				placeholder="Select service type to add..."
+				emptyMessage="No services configured yet. Add one to get started."
+				options={availableServiceTypes}
+				itemClickAction="edit"
+				showSearch={true}
+				{items}
+				allowItemRemove={() => !isTransferringPortBindings}
+				allowReorder={!isTransferringPortBindings}
+				optionDisplayComponent={ServiceTypeDisplay}
+				itemDisplayComponent={ServiceDisplay}
+				getItemContext={() => ({})}
+				onAdd={handleAddService}
+				onRemove={handleRemoveService}
+				onClick={onItemSelect}
+				{onMoveDown}
+				{onMoveUp}
+				{onEdit}
+				{highlightedIndex}
 			>
-				{@const isTransferringPortBindings = selectedPortBindings.length > 0}
-				<ListManager
-					label="Services"
-					helpText="Services define what this host provides to the network. The icon for the first service in the list will be used as the host's logo in the Host tab."
-					placeholder="Select service type to add..."
-					emptyMessage="No services configured yet. Add one to get started."
-					options={availableServiceTypes}
-					itemClickAction="edit"
-					showSearch={true}
-					{items}
-					allowItemRemove={() => !isTransferringPortBindings}
-					allowReorder={!isTransferringPortBindings}
-					optionDisplayComponent={ServiceTypeDisplay}
-					itemDisplayComponent={ServiceDisplay}
-					getItemContext={() => ({})}
-					onAdd={handleAddService}
-					onRemove={handleRemoveService}
-					onClick={onItemSelect}
-					{onMoveDown}
-					{onMoveUp}
-					{onEdit}
-					{highlightedIndex}
-				>
-					{#snippet itemSnippet({ item })}
-						<div class="flex min-w-0 flex-1 items-center justify-between gap-2">
-							<div class="min-w-0 flex-1 overflow-hidden">
-								<ListSelectItem
-									{item}
-									context={{ interfaceId: null }}
-									displayComponent={ServiceDisplay}
-								/>
-							</div>
-
-							{#if selectedPortBindings.length > 0 && item != highlightedItem && highlightedItem != null && !item.bindings.some((b) => b.type == 'Interface')}
-								<button
-									type="button"
-									onclick={(e) => {
-										e.stopPropagation();
-										handleTransferPorts(item, highlightedItem);
-									}}
-									class="btn-secondary flex-shrink-0 text-xs"
-									title="Transfer {selectedPortBindings.length} binding(s) here"
-								>
-									<ArrowRightLeft size={12} />
-									<span>Transfer Ports</span>
-								</button>
-							{/if}
+				{#snippet itemSnippet({ item })}
+					<div class="flex min-w-0 flex-1 items-center justify-between gap-2">
+						<div class="min-w-0 flex-1 overflow-hidden">
+							<ListSelectItem
+								{item}
+								context={{ interfaceId: null }}
+								displayComponent={ServiceDisplay}
+							/>
 						</div>
-					{/snippet}
-				</ListManager>
-			</svelte:fragment>
 
-			<svelte:fragment slot="config" let:selectedItem let:onChange let:selectedIndex>
-				{#if selectedItem}
+						{#if selectedPortBindings.length > 0 && item != highlightedItem && highlightedItem != null && !item.bindings.some((b) => b.type == 'Interface')}
+							<button
+								type="button"
+								onclick={(e) => {
+									e.stopPropagation();
+									handleTransferPorts(item, highlightedItem);
+								}}
+								class="btn-secondary flex-shrink-0 text-xs"
+								title="Transfer {selectedPortBindings.length} binding(s) here"
+							>
+								<ArrowRightLeft size={12} />
+								<span>Transfer Ports</span>
+							</button>
+						{/if}
+					</div>
+				{/snippet}
+			</ListManager>
+		</svelte:fragment>
+
+		<svelte:fragment slot="config" let:selectedItem let:selectedIndex>
+			<!-- Render all service config panels to register form fields, but only show the selected one -->
+			{#each formData.services as service, index (`${service.id}-${index}`)}
+				<div class:hidden={selectedIndex !== index}>
 					<ServiceConfigPanel
 						host={formData}
-						index={selectedIndex}
-						service={selectedItem}
-						onChange={(updatedService) => onChange(updatedService)}
+						{index}
+						{service}
+						{form}
+						onChange={(updatedService) => handleServiceChange(updatedService, index)}
 						bind:selectedPortBindings
+						currentServices={formData.services}
 					/>
-				{:else}
-					<EntityConfigEmpty
-						title="No service selected"
-						subtitle="Select a service from the list to configure it"
-					/>
-				{/if}
-			</svelte:fragment>
-		</ListConfigEditor>
+				</div>
+			{/each}
 
-		<EntityMetadataSection entities={currentServices} showSummary={false} />
-	{/if}
+			{#if !selectedItem}
+				<EntityConfigEmpty
+					title="No service selected"
+					subtitle="Select a service from the list to configure it"
+				/>
+			{/if}
+		</svelte:fragment>
+	</ListConfigEditor>
+
+	<EntityMetadataSection entities={formData.services} showSummary={false} />
 </div>

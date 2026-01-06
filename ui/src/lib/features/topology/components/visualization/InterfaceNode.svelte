@@ -4,9 +4,10 @@
 	import {
 		selectedEdge as globalSelectedEdge,
 		selectedNode as globalSelectedNode,
-		topology as globalTopology,
-		topologyOptions
-	} from '../../store';
+		selectedTopologyId,
+		topologyOptions,
+		useTopologiesQuery
+	} from '../../queries';
 	import type {
 		InterfaceNode as InterfaceNodeType,
 		NodeRenderData,
@@ -21,9 +22,13 @@
 
 	let { id, data, width, height }: NodeProps = $props();
 
-	// Try to get topology from context (for share/embed pages), fallback to global store
+	// Try to get topology from context (for share/embed pages), fallback to TanStack query
 	const topologyContext = getContext<Writable<Topology> | undefined>('topology');
-	let topology = $derived(topologyContext ? $topologyContext : $globalTopology);
+	const topologiesQuery = useTopologiesQuery();
+	let topologiesData = $derived(topologiesQuery.data ?? []);
+	let topology = $derived(
+		topologyContext ? $topologyContext : topologiesData.find((t) => t.id === $selectedTopologyId)
+	);
 
 	// Try to get selection from context (for share/embed pages), fallback to global store
 	const selectedNodeContext = getContext<Writable<Node | null> | undefined>('selectedNode');

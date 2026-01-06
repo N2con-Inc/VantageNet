@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { optionsPanelExpanded, selectedNode, selectedEdge } from '../../store';
+	import { optionsPanelExpanded, selectedNode, selectedEdge } from '../../queries';
 	import { ChevronLeft, ChevronRight, Settings, Info } from 'lucide-svelte';
 	import OptionsContent from './options/OptionsContent.svelte';
 	import InspectorNode from './inspectors/InspectorNode.svelte';

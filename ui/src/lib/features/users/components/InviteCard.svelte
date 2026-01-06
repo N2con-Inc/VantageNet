@@ -29,9 +29,9 @@
 
 	let canManage = $derived(
 		currentUser
-			? permissions
+			? (permissions
 					.getMetadata(currentUser.permissions)
-					.can_manage_user_permissions.includes(invite.permissions)
+					?.grantable_user_permissions?.includes(invite.permissions) ?? false)
 			: false
 	);
 

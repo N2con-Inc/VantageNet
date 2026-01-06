@@ -50,16 +50,16 @@ macro_rules! crud_get_by_id_handler {
                 (status = 200, description = concat!(stringify!($entity), " found"), body = $crate::server::shared::types::api::ApiResponse<$entity>),
                 (status = 404, description = concat!(stringify!($entity), " not found"), body = $crate::server::shared::types::api::ApiErrorResponse),
             ),
-            security(("session" = []))
+             security(("user_api_key" = []), ("session" = []))
         )]
         pub async fn get_by_id(
             state: axum::extract::State<std::sync::Arc<$crate::server::config::AppState>>,
-            user: $crate::server::auth::middleware::permissions::RequireMember,
+            auth: $crate::server::auth::middleware::permissions::Authorized<$crate::server::auth::middleware::permissions::Viewer>,
             path: axum::extract::Path<uuid::Uuid>,
         ) -> $crate::server::shared::types::api::ApiResult<
             axum::response::Json<$crate::server::shared::types::api::ApiResponse<$entity>>,
         > {
-            $crate::server::shared::handlers::traits::get_by_id_handler::<$entity>(state, user, path)
+            $crate::server::shared::handlers::traits::get_by_id_handler::<$entity>(state, auth, path)
                 .await
         }
     };
@@ -80,16 +80,16 @@ macro_rules! crud_create_handler {
                 (status = 200, description = concat!(stringify!($entity), " created"), body = $crate::server::shared::types::api::ApiResponse<$entity>),
                 (status = 400, description = "Invalid request", body = $crate::server::shared::types::api::ApiErrorResponse),
             ),
-            security(("session" = []))
+             security(("user_api_key" = []), ("session" = []))
         )]
         pub async fn create(
             state: axum::extract::State<std::sync::Arc<$crate::server::config::AppState>>,
-            user: $crate::server::auth::middleware::permissions::RequireMember,
+            auth: $crate::server::auth::middleware::permissions::Authorized<$crate::server::auth::middleware::permissions::Member>,
             body: axum::response::Json<$entity>,
         ) -> $crate::server::shared::types::api::ApiResult<
             axum::response::Json<$crate::server::shared::types::api::ApiResponse<$entity>>,
         > {
-            $crate::server::shared::handlers::traits::create_handler::<$entity>(state, user, body)
+            $crate::server::shared::handlers::traits::create_handler::<$entity>(state, auth, body)
                 .await
         }
     };
@@ -111,18 +111,18 @@ macro_rules! crud_update_handler {
                 (status = 200, description = concat!(stringify!($entity), " updated"), body = $crate::server::shared::types::api::ApiResponse<$entity>),
                 (status = 404, description = concat!(stringify!($entity), " not found"), body = $crate::server::shared::types::api::ApiErrorResponse),
             ),
-            security(("session" = []))
+             security(("user_api_key" = []), ("session" = []))
         )]
         pub async fn update(
             state: axum::extract::State<std::sync::Arc<$crate::server::config::AppState>>,
-            user: $crate::server::auth::middleware::permissions::RequireMember,
+            auth: $crate::server::auth::middleware::permissions::Authorized<$crate::server::auth::middleware::permissions::Member>,
             path: axum::extract::Path<uuid::Uuid>,
             body: axum::response::Json<$entity>,
         ) -> $crate::server::shared::types::api::ApiResult<
             axum::response::Json<$crate::server::shared::types::api::ApiResponse<$entity>>,
         > {
             $crate::server::shared::handlers::traits::update_handler::<$entity>(
-                state, user, path, body,
+                state, auth, path, body,
             )
             .await
         }
@@ -144,16 +144,16 @@ macro_rules! crud_delete_handler {
                 (status = 200, description = concat!(stringify!($entity), " deleted"), body = $crate::server::shared::types::api::EmptyApiResponse),
                 (status = 404, description = concat!(stringify!($entity), " not found"), body = $crate::server::shared::types::api::ApiErrorResponse),
             ),
-            security(("session" = []))
+             security(("user_api_key" = []), ("session" = []))
         )]
         pub async fn delete(
             state: axum::extract::State<std::sync::Arc<$crate::server::config::AppState>>,
-            user: $crate::server::auth::middleware::permissions::RequireMember,
+            auth: $crate::server::auth::middleware::permissions::Authorized<$crate::server::auth::middleware::permissions::Member>,
             path: axum::extract::Path<uuid::Uuid>,
         ) -> $crate::server::shared::types::api::ApiResult<
             axum::response::Json<$crate::server::shared::types::api::ApiResponse<()>>,
         > {
-            $crate::server::shared::handlers::traits::delete_handler::<$entity>(state, user, path)
+            $crate::server::shared::handlers::traits::delete_handler::<$entity>(state, auth, path)
                 .await
         }
     };
@@ -173,11 +173,11 @@ macro_rules! crud_bulk_delete_handler {
             responses(
                 (status = 200, description = concat!(stringify!($entity), "s deleted"), body = $crate::server::shared::types::api::ApiResponse<$crate::server::shared::handlers::traits::BulkDeleteResponse>),
             ),
-            security(("session" = []))
+             security(("user_api_key" = []), ("session" = []))
         )]
         pub async fn bulk_delete(
             state: axum::extract::State<std::sync::Arc<$crate::server::config::AppState>>,
-            user: $crate::server::auth::middleware::permissions::RequireMember,
+            auth: $crate::server::auth::middleware::permissions::Authorized<$crate::server::auth::middleware::permissions::Member>,
             body: axum::response::Json<Vec<uuid::Uuid>>,
         ) -> $crate::server::shared::types::api::ApiResult<
             axum::response::Json<
@@ -187,7 +187,7 @@ macro_rules! crud_bulk_delete_handler {
             >,
         > {
             $crate::server::shared::handlers::traits::bulk_delete_handler::<$entity>(
-                state, user, body,
+                state, auth, body,
             )
             .await
         }
@@ -220,16 +220,16 @@ macro_rules! crud_get_all_handler {
             responses(
                 (status = 200, description = concat!("List of ", $tag), body = $crate::server::shared::types::api::ApiResponse<Vec<$response>>),
             ),
-            security(("session" = []))
+             security(("user_api_key" = []), ("session" = []))
         )]
         pub async fn get_all(
             state: axum::extract::State<std::sync::Arc<$crate::server::config::AppState>>,
-            user: $crate::server::auth::middleware::auth::AuthenticatedUser,
+            auth: $crate::server::auth::middleware::permissions::Authorized<$crate::server::auth::middleware::permissions::Viewer>,
             query: axum::extract::Query<__GetAllFilterQuery>,
         ) -> $crate::server::shared::types::api::ApiResult<
             axum::response::Json<$crate::server::shared::types::api::ApiResponse<Vec<$response>>>,
         > {
-            $crate::server::shared::handlers::traits::get_all_handler::<$entity>(state, user, query)
+            $crate::server::shared::handlers::traits::get_all_handler::<$entity>(state, auth, query)
                 .await
         }
     };

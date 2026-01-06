@@ -84,13 +84,13 @@
 	showCloseButton={false}
 	preventCloseOnClickOutside={true}
 >
-	<svelte:fragment slot="header-icon">
+	{#snippet headerIcon()}
 		<img
 			src="https://cdn.jsdelivr.net/gh/scanopy/website@main/static/scanopy-logo.png"
 			alt="Scanopy Logo"
 			class="h-8 w-8"
 		/>
-	</svelte:fragment>
+	{/snippet}
 
 	<div class="space-y-6 p-6">
 		<p class="text-secondary text-center text-sm">We'll tailor the setup to your needs</p>
@@ -187,18 +187,20 @@
 		{/if}
 	</div>
 
-	<svelte:fragment slot="footer">
-		{#if onSwitchToLogin}
-			<p class="text-secondary text-center text-sm">
-				Already have an account?
-				<button
-					type="button"
-					on:click={onSwitchToLogin}
-					class="font-medium text-blue-400 hover:text-blue-300"
-				>
-					Log in here
-				</button>
-			</p>
-		{/if}
-	</svelte:fragment>
+	{#snippet footer()}
+		<div class="modal-footer">
+			{#if onSwitchToLogin}
+				<p class="text-secondary text-center text-sm">
+					Already have an account?
+					<button
+						type="button"
+						on:click={onSwitchToLogin}
+						class="font-medium text-blue-400 hover:text-blue-300"
+					>
+						Log in here
+					</button>
+				</p>
+			{/if}
+		</div>
+	{/snippet}
 </GenericModal>

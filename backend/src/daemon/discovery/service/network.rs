@@ -141,7 +141,7 @@ impl DiscoversNetworkedEntities for DiscoveryRunner<NetworkScanDiscovery> {
                     }
 
                     if s.base.subnet_type.discriminant() == SubnetTypeDiscriminants::DockerBridge {
-                        tracing::warn!("Skipping {} with CIDR {}, docker bridge subnets are scanning in docker discovery", s.base.name, s.base.cidr);
+                        tracing::warn!("Skipping {} with CIDR {}, docker bridge subnets are scanned in docker discovery", s.base.name, s.base.cidr);
                         return false
                     }
 
@@ -692,7 +692,7 @@ impl DiscoveryRunner<NetworkScanDiscovery> {
     async fn get_subnets(&self) -> Result<Vec<Subnet>, Error> {
         self.as_ref()
             .api_client
-            .get("/api/subnets", "Failed to get subnets")
+            .get("/api/v1/subnets", "Failed to get subnets")
             .await
     }
 }

@@ -12,51 +12,67 @@
 </script>
 
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { X } from 'lucide-svelte';
-	import { onDestroy } from 'svelte';
 
-	export let title: string = 'Modal';
-	export let centerTitle: boolean = false;
-	export let isOpen: boolean = false;
-	export let onClose: (() => void) | null = null;
-	export let size: 'sm' | 'md' | 'lg' | 'xl' | 'full' = 'lg';
-	export let preventCloseOnClickOutside: boolean = false;
-	export let showCloseButton: boolean = true;
-	export let showBackdrop: boolean = true;
-
-	/** Optional tabs to display in modal header */
-	export let tabs: ModalTab[] = [];
-	/** Currently active tab id (bindable) */
-	export let activeTab: string = '';
-	/** Callback when tab changes */
-	export let onTabChange: ((tabId: string) => void) | null = null;
-	/** Callback when modal opens (fires on transition from closed to open) */
-	export let onOpen: (() => void) | null = null;
-
-	/** Key that increments each time modal opens - use to force recreation of stateful content like forms */
-	export let instanceKey: number = 0;
+	let {
+		title = 'Modal',
+		centerTitle = false,
+		isOpen = false,
+		onClose = null,
+		size = 'lg',
+		preventCloseOnClickOutside = false,
+		showCloseButton = true,
+		showBackdrop = true,
+		tabs = [],
+		activeTab = $bindable(''),
+		onTabChange = null,
+		onOpen = null,
+		instanceKey = $bindable(0),
+		headerIcon,
+		children,
+		footer
+	}: {
+		title?: string;
+		centerTitle?: boolean;
+		isOpen?: boolean;
+		onClose?: (() => void) | null;
+		size?: 'sm' | 'md' | 'lg' | 'xl' | 'full';
+		preventCloseOnClickOutside?: boolean;
+		showCloseButton?: boolean;
+		showBackdrop?: boolean;
+		tabs?: ModalTab[];
+		activeTab?: string;
+		onTabChange?: ((tabId: string) => void) | null;
+		onOpen?: (() => void) | null;
+		instanceKey?: number;
+		headerIcon?: Snippet;
+		children?: Snippet<[number]>;
+		footer?: Snippet;
+	} = $props();
 
 	// Track previous open state to detect open transition
-	let wasOpen = false;
+	let wasOpen = $state(false);
 
 	function handleTabClick(tabId: string) {
 		activeTab = tabId;
 		onTabChange?.(tabId);
 	}
 
-	$: if (typeof window !== 'undefined' && isOpen) {
-		document.body.style.overflow = 'hidden';
-	} else if (typeof window !== 'undefined') {
-		document.body.style.overflow = '';
-	}
+	// Lock body scroll when modal is open
+	$effect(() => {
+		if (typeof window !== 'undefined' && isOpen) {
+			document.body.style.overflow = 'hidden';
+			return () => {
+				document.body.style.overflow = '';
+			};
+		}
+	});
 
 	// Fire onOpen callback when modal transitions from closed to open
-	// Also reset activeTab to first tab (or keep current if valid)
-	$: {
+	$effect(() => {
 		if (isOpen && !wasOpen) {
-			// Increment instanceKey to allow consumers to force recreation of stateful content
 			instanceKey++;
-			// Reset to first tab if current activeTab is not in tabs list
 			if (tabs.length > 0 && !tabs.some((t) => t.id === activeTab)) {
 				activeTab = tabs[0].id;
 				onTabChange?.(activeTab);
@@ -64,16 +80,10 @@
 			onOpen?.();
 		}
 		wasOpen = isOpen;
-	}
-
-	onDestroy(() => {
-		if (typeof window !== 'undefined') {
-			document.body.style.overflow = '';
-		}
 	});
 
 	// Size classes
-	const sizeClasses = {
+	const sizeClasses: Record<string, string> = {
 		sm: 'max-w-md',
 		md: 'max-w-lg',
 		lg: 'max-w-2xl',
@@ -82,7 +92,6 @@
 	};
 
 	function handleClose() {
-		// Reset tab state on close
 		activeTab = tabs.length > 0 ? tabs[0].id : '';
 		onClose?.();
 	}
@@ -100,7 +109,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={handleKeydown} />
+<svelte:window onkeydown={handleKeydown} />
 
 {#if isOpen}
 	<!-- Modal backdrop -->
@@ -124,9 +133,7 @@
 				<!-- Title row -->
 				<div class="flex w-full items-center justify-between">
 					{#if centerTitle}
-						{#if $$slots['header-icon']}
-							<slot name="header-icon" />
-						{/if}
+						{@render headerIcon?.()}
 						<h2
 							id="modal-title"
 							class="text-primary absolute left-1/2 -translate-x-1/2 text-xl font-semibold"
@@ -135,9 +142,7 @@
 						</h2>
 					{:else}
 						<div class="flex items-center gap-3">
-							{#if $$slots['header-icon']}
-								<slot name="header-icon" />
-							{/if}
+							{@render headerIcon?.()}
 							<h2 id="modal-title" class="text-primary text-xl font-semibold">
 								{title}
 							</h2>
@@ -166,7 +171,7 @@
 							>
 								<div class="flex items-center gap-2">
 									{#if tab.icon}
-										<svelte:component this={tab.icon} class="h-4 w-4" />
+										<tab.icon class="h-4 w-4" />
 									{/if}
 									{tab.label}
 								</div>
@@ -178,15 +183,11 @@
 
 			<!-- Content slot -->
 			<div class="modal-content">
-				<slot {instanceKey} />
+				{@render children?.(instanceKey)}
 			</div>
 
 			<!-- Footer slot -->
-			{#if $$slots.footer}
-				<div class="modal-footer">
-					<slot name="footer" />
-				</div>
-			{/if}
+			{@render footer?.()}
 		</div>
 	</div>
 {/if}

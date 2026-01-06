@@ -4,6 +4,7 @@
 -- Run this script BEFORE upgrading to v0.12.7 if you encounter migration errors:
 --   - "insert or update on table interfaces violates foreign key constraint interfaces_subnet_id_fkey"
 --   - "duplicate key value violates unique constraint ports_host_id_port_number_protocol_key"
+--   - "duplicate key value violates unique constraint interfaces_pkey"
 --
 -- This script cleans up data issues in the JSONB columns that would cause
 -- constraint violations during the normalization migrations.
@@ -21,8 +22,9 @@
 -- ============================================================================
 
 -- Set dry run mode (pass -v DRY_RUN=true to enable)
-\set is_dry_run :DRY_RUN
-SELECT COALESCE(:'is_dry_run', 'false') = 'true' AS dry_run \gset
+-- When DRY_RUN is not set, :DRY_RUN expands to literal ':DRY_RUN', so we check for that
+\set _dry_run_input :DRY_RUN
+SELECT CASE WHEN COALESCE(NULLIF(:'_dry_run_input', ':DRY_RUN'), 'false') = 'true' THEN 'true' ELSE 'false' END AS dry_run \gset
 
 BEGIN;
 
@@ -126,6 +128,81 @@ BEGIN
         ) ranked
         WHERE rn > 1
         ON CONFLICT DO NOTHING;
+    END IF;
+END $$;
+
+-- ============================================================================
+-- Step 2b: Fix globally duplicate interface UUIDs
+-- ============================================================================
+-- The interfaces table has PRIMARY KEY on id.
+-- If the same interface UUID appears on different hosts, the migration will fail.
+-- This can happen if hosts were duplicated. We regenerate UUIDs for duplicates,
+-- keeping the first occurrence unchanged.
+
+CREATE TEMP TABLE global_interface_duplicates (
+    host_id UUID,
+    old_interface_id UUID,
+    new_interface_id UUID
+);
+
+DO $$
+DECLARE
+    dup_count INTEGER;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'hosts' AND column_name = 'interfaces'
+    ) THEN
+        -- Find interface UUIDs that appear on multiple hosts and mark all but first for UUID regeneration
+        INSERT INTO global_interface_duplicates (host_id, old_interface_id, new_interface_id)
+        SELECT host_id, interface_id, gen_random_uuid()
+        FROM (
+            SELECT
+                h.id AS host_id,
+                (i->>'id')::UUID AS interface_id,
+                ROW_NUMBER() OVER (PARTITION BY (i->>'id')::UUID ORDER BY h.id) AS rn
+            FROM hosts h, jsonb_array_elements(h.interfaces) AS i
+            WHERE h.interfaces IS NOT NULL
+              AND jsonb_array_length(h.interfaces) > 0
+        ) ranked
+        WHERE rn > 1;
+
+        SELECT COUNT(*) INTO dup_count FROM global_interface_duplicates;
+
+        IF dup_count > 0 THEN
+            IF current_setting('dry_run.enabled', true) = 'true' THEN
+                RAISE NOTICE '[DRY RUN] Would regenerate UUIDs for % interface(s) with globally duplicate IDs', dup_count;
+            ELSE
+                RAISE NOTICE 'Regenerating UUIDs for % interface(s) with globally duplicate IDs', dup_count;
+
+                UPDATE hosts h
+                SET interfaces = (
+                    SELECT jsonb_agg(
+                        CASE
+                            WHEN (i->>'id')::UUID IN (
+                                SELECT old_interface_id FROM global_interface_duplicates
+                                WHERE global_interface_duplicates.host_id = h.id
+                            )
+                            THEN jsonb_set(
+                                i,
+                                '{id}',
+                                to_jsonb((
+                                    SELECT new_interface_id::TEXT
+                                    FROM global_interface_duplicates
+                                    WHERE global_interface_duplicates.host_id = h.id
+                                      AND global_interface_duplicates.old_interface_id = (i->>'id')::UUID
+                                ))
+                            )
+                            ELSE i
+                        END
+                    )
+                    FROM jsonb_array_elements(h.interfaces) AS i
+                )
+                WHERE h.id IN (SELECT host_id FROM global_interface_duplicates);
+            END IF;
+        ELSE
+            RAISE NOTICE 'No globally duplicate interface UUIDs found';
+        END IF;
     END IF;
 END $$;
 
@@ -484,6 +561,7 @@ END $$;
 DROP TABLE IF EXISTS interfaces_to_remove;
 DROP TABLE IF EXISTS port_id_mapping;
 DROP TABLE IF EXISTS bindings_to_remove;
+DROP TABLE IF EXISTS global_interface_duplicates;
 
 -- Commit or rollback based on dry-run mode
 DO $$

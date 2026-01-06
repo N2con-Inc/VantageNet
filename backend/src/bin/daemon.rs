@@ -1,4 +1,4 @@
-use axum::{Router, http::Method};
+use axum::{Router, http::Method, middleware};
 use clap::Parser;
 use vantagenet::{
     daemon::{
@@ -6,6 +6,7 @@ use vantagenet::{
         shared::{
             config::{AppConfig, ConfigStore, DaemonCli},
             handlers::create_router,
+            middleware::capture_fixtures_middleware,
         },
         utils::base::{DaemonUtils, PlatformDaemonUtils},
     },
@@ -73,7 +74,8 @@ async fn async_main() -> anyhow::Result<()> {
                     .allow_origin(Any)
                     .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
                     .allow_headers(Any),
-            ),
+            )
+            .layer(middleware::from_fn(capture_fixtures_middleware)),
     );
 
     let bind_addr = format!("{}:{}", config.bind_address, config.daemon_port);

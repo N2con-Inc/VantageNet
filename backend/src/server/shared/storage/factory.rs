@@ -5,19 +5,21 @@ use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions_sqlx_store::PostgresStore;
 
 use crate::server::{
-    api_keys::r#impl::base::ApiKey, bindings::r#impl::base::Binding, daemons::r#impl::base::Daemon,
-    discovery::r#impl::base::Discovery, groups::r#impl::base::Group, hosts::r#impl::base::Host,
-    interfaces::r#impl::base::Interface, invites::r#impl::base::Invite, networks::r#impl::Network,
-    organizations::r#impl::base::Organization, ports::r#impl::base::Port,
-    services::r#impl::base::Service, shared::storage::generic::GenericPostgresStorage,
-    shares::r#impl::base::Share, subnets::r#impl::base::Subnet, tags::r#impl::base::Tag,
-    topology::types::base::Topology, users::r#impl::base::User,
+    bindings::r#impl::base::Binding, daemon_api_keys::r#impl::base::DaemonApiKey,
+    daemons::r#impl::base::Daemon, discovery::r#impl::base::Discovery, groups::r#impl::base::Group,
+    hosts::r#impl::base::Host, interfaces::r#impl::base::Interface, invites::r#impl::base::Invite,
+    networks::r#impl::Network, organizations::r#impl::base::Organization,
+    ports::r#impl::base::Port, services::r#impl::base::Service,
+    shared::storage::generic::GenericPostgresStorage, shares::r#impl::base::Share,
+    subnets::r#impl::base::Subnet, tags::r#impl::base::Tag, topology::types::base::Topology,
+    user_api_keys::r#impl::base::UserApiKey, users::r#impl::base::User,
 };
 
 pub struct StorageFactory {
     pub pool: PgPool,
     pub sessions: SessionManagerLayer<PostgresStore>,
-    pub api_keys: Arc<GenericPostgresStorage<ApiKey>>,
+    pub daemon_api_keys: Arc<GenericPostgresStorage<DaemonApiKey>>,
+    pub user_api_keys: Arc<GenericPostgresStorage<UserApiKey>>,
     pub users: Arc<GenericPostgresStorage<User>>,
     pub networks: Arc<GenericPostgresStorage<Network>>,
     pub hosts: Arc<GenericPostgresStorage<Host>>,
@@ -45,7 +47,7 @@ pub async fn create_session_store(
     session_store.migrate().await?;
 
     Ok(SessionManagerLayer::new(session_store)
-        .with_expiry(Expiry::OnInactivity(time::Duration::days(30))) // 30 days
+        .with_expiry(Expiry::OnInactivity(time::Duration::days(7)))
         .with_name("session_id")
         .with_secure(use_secure)
         .with_http_only(true)
@@ -67,7 +69,8 @@ impl StorageFactory {
             organizations: Arc::new(GenericPostgresStorage::new(pool.clone())),
             invites: Arc::new(GenericPostgresStorage::new(pool.clone())),
             shares: Arc::new(GenericPostgresStorage::new(pool.clone())),
-            api_keys: Arc::new(GenericPostgresStorage::new(pool.clone())),
+            daemon_api_keys: Arc::new(GenericPostgresStorage::new(pool.clone())),
+            user_api_keys: Arc::new(GenericPostgresStorage::new(pool.clone())),
             users: Arc::new(GenericPostgresStorage::new(pool.clone())),
             networks: Arc::new(GenericPostgresStorage::new(pool.clone())),
             hosts: Arc::new(GenericPostgresStorage::new(pool.clone())),

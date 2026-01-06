@@ -14,10 +14,16 @@ import { env } from '$env/dynamic/public';
 export type { paths, components };
 
 // Common type aliases
+export type ApiMeta = {
+	api_version: number;
+	server_version: string;
+};
+
 export type ApiResponse<T> = {
 	success: boolean;
 	data: T | null;
 	error: string | null;
+	meta: ApiMeta;
 };
 
 /**

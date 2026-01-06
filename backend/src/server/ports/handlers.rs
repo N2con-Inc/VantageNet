@@ -4,7 +4,7 @@ use std::sync::Arc;
 use utoipa_axum::{router::OpenApiRouter, routes};
 use uuid::Uuid;
 
-use crate::server::auth::middleware::permissions::RequireMember;
+use crate::server::auth::middleware::permissions::{Authorized, Member};
 use crate::server::config::AppState;
 use crate::server::ports::{r#impl::base::Port, service::PortService};
 use crate::server::shared::handlers::query::HostChildQuery;
@@ -72,15 +72,15 @@ async fn validate_port_network_consistency(state: &AppState, port: &Port) -> Res
         (status = 200, description = "Port created successfully", body = ApiResponse<Port>),
         (status = 400, description = "Network mismatch or duplicate port", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn create_port(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     Json(port): Json<Port>,
 ) -> ApiResult<Json<ApiResponse<Port>>> {
     validate_port_network_consistency(&state, &port).await?;
-    create_handler::<Port>(State(state), user, Json(port)).await
+    create_handler::<Port>(State(state), auth, Json(port)).await
 }
 
 /// Update a port
@@ -95,14 +95,14 @@ async fn create_port(
         (status = 400, description = "Network mismatch or invalid request", body = ApiErrorResponse),
         (status = 404, description = "Port not found", body = ApiErrorResponse),
     ),
-    security(("session" = []))
+     security(("user_api_key" = []), ("session" = []))
 )]
 async fn update_port(
     State(state): State<Arc<AppState>>,
-    user: RequireMember,
+    auth: Authorized<Member>,
     path: Path<Uuid>,
     Json(port): Json<Port>,
 ) -> ApiResult<Json<ApiResponse<Port>>> {
     validate_port_network_consistency(&state, &port).await?;
-    update_handler::<Port>(State(state), user, path, Json(port)).await
+    update_handler::<Port>(State(state), auth, path, Json(port)).await
 }
